@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import useLockBodyScroll from '../hooks/useLockBodyScroll'
+import ModalPortal from './ModalPortal'
 import { getKanbanCards, createKanbanCard, updateKanbanCard, deleteKanbanCard } from '../services/api'
 import TaskDetails from './TaskDetails'
 
@@ -88,72 +89,74 @@ export default function ProjectKanban({ project, onBack }) {
       </div>
 
       {isModalOpen && (
-        <div className="modal-overlay" onClick={() => setIsModalOpen(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3 className="modal-title">Add Task</h3>
-              <button className="modal-close" onClick={() => setIsModalOpen(false)}>✕</button>
-            </div>
-            <form className="modal-body" onSubmit={handleSubmit}>
-              <label className="field">
-                <span className="field-label">Card title</span>
-                <input
-                  className="input"
-                  type="text"
-                  value={formData.title}
-                  onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                  placeholder="Card title"
-                  required
-                />
-              </label>
-              <label className="field">
-                <span className="field-label">Label</span>
-                <input
-                  className="input"
-                  type="text"
-                  value={formData.label}
-                  onChange={(e) => setFormData({ ...formData, label: e.target.value })}
-                  placeholder="Label"
-                />
-              </label>
-              <label className="field">
-                <span className="field-label">Status</span>
-                <select
-                  className="input"
-                  value={formData.status}
-                  onChange={(e) => setFormData({ ...formData, status: e.target.value })}
-                >
-                  <option value="todo">To Do</option>
-                  <option value="inprogress">In Progress</option>
-                  <option value="done">Done</option>
-                </select>
-              </label>
-              <label className="field">
-                <span className="field-label">Due date</span>
-                <input
-                  className="input"
-                  type="date"
-                  value={formData.dueDate}
-                  onChange={(e) => setFormData({ ...formData, dueDate: e.target.value })}
-                />
-              </label>
-              <label className="field">
-                <span className="field-label">Description (optional)</span>
-                <textarea
-                  className="input"
-                  rows={3}
-                  value={formData.description}
-                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                  placeholder="Add a short description"
-                />
-              </label>
-              <div className="modal-actions">
-                <button className="btn ghost" type="button" onClick={() => setIsModalOpen(false)}>Cancel</button>
-                <button className="btn primary" type="submit">Add Task</button>
+        <ModalPortal>
+          <div className="modal-overlay" onClick={() => setIsModalOpen(false)}>
+            <div className="modal" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-header">
+                <h3 className="modal-title">Add Task</h3>
+                <button className="modal-close" onClick={() => setIsModalOpen(false)}>✕</button>
               </div>
-            </form>
+              <form className="modal-body" onSubmit={handleSubmit}>
+                <label className="field">
+                  <span className="field-label">Card title</span>
+                  <input
+                    className="input"
+                    type="text"
+                    value={formData.title}
+                    onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                    placeholder="Card title"
+                    required
+                  />
+                </label>
+                <label className="field">
+                  <span className="field-label">Label</span>
+                  <input
+                    className="input"
+                    type="text"
+                    value={formData.label}
+                    onChange={(e) => setFormData({ ...formData, label: e.target.value })}
+                    placeholder="Label"
+                  />
+                </label>
+                <label className="field">
+                  <span className="field-label">Status</span>
+                  <select
+                    className="input"
+                    value={formData.status}
+                    onChange={(e) => setFormData({ ...formData, status: e.target.value })}
+                  >
+                    <option value="todo">To Do</option>
+                    <option value="inprogress">In Progress</option>
+                    <option value="done">Done</option>
+                  </select>
+                </label>
+                <label className="field">
+                  <span className="field-label">Due date</span>
+                  <input
+                    className="input"
+                    type="date"
+                    value={formData.dueDate}
+                    onChange={(e) => setFormData({ ...formData, dueDate: e.target.value })}
+                  />
+                </label>
+                <label className="field">
+                  <span className="field-label">Description (optional)</span>
+                  <textarea
+                    className="input"
+                    rows={3}
+                    value={formData.description}
+                    onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                    placeholder="Add a short description"
+                  />
+                </label>
+                <div className="modal-actions">
+                  <button className="btn ghost" type="button" onClick={() => setIsModalOpen(false)}>Cancel</button>
+                  <button className="btn primary" type="submit">Add Task</button>
+                </div>
+              </form>
+            </div>
           </div>
-        </div>
+        </ModalPortal>
       )}
 
       {selectedCard && (

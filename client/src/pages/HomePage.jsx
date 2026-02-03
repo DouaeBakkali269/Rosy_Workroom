@@ -1,4 +1,8 @@
-export default function HomePage() {
+export default function HomePage({ onNavigate }) {
+  const handleNavigate = (page) => {
+    if (onNavigate) onNavigate(page)
+  }
+
   return (
     <section className="page-section active" id="home">
       <div className="home-hero">
@@ -11,8 +15,15 @@ export default function HomePage() {
             Set gentle priorities, track your wins, and keep your days soft and intentional.
           </p>
           <div className="hero-actions">
-            <button className="btn primary">Start a focus session</button>
-            <button className="btn ghost">Plan my week</button>
+            <div className="hero-actions-row hero-actions-row-1">
+              <button className="btn primary hero-btn" onClick={() => handleNavigate('projects')}>Plan Your Projects</button>
+              <button className="btn ghost hero-btn" onClick={() => handleNavigate('week-planner')}>Plan Your Week</button>
+              <button className="btn ghost hero-btn" onClick={() => handleNavigate('money')}>Track Your Money</button>
+            </div>
+            <div className="hero-actions-row hero-actions-row-2">
+              <button className="btn ghost hero-btn" onClick={() => handleNavigate('vision')}>Add Your Goals</button>
+              <button className="btn ghost hero-btn" onClick={() => handleNavigate('notes')}>Take Notes</button>
+            </div>
           </div>
         </div>
       </div>

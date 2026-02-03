@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import useLockBodyScroll from '../hooks/useLockBodyScroll'
+import ModalPortal from '../components/ModalPortal'
 import { getNotes, createNote, deleteNote } from '../services/api'
 
 export default function NotesPage() {
@@ -75,43 +76,45 @@ export default function NotesPage() {
       </div>
 
       {isModalOpen && (
-        <div className="modal-overlay" onClick={() => setIsModalOpen(false)}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3>Add Note</h3>
-              <button className="modal-close" onClick={() => setIsModalOpen(false)}>✕</button>
-            </div>
-            <form className="modal-form" onSubmit={handleSubmit}>
-              <input
-                className="input"
-                type="text"
-                value={formData.title}
-                onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                placeholder="Note title"
-                required
-              />
-              <textarea
-                className="input"
-                value={formData.content}
-                onChange={(e) => setFormData({ ...formData, content: e.target.value })}
-                placeholder="Write your note here..."
-                rows="6"
-                required
-              ></textarea>
-              <input
-                className="input"
-                type="text"
-                value={formData.tags}
-                onChange={(e) => setFormData({ ...formData, tags: e.target.value })}
-                placeholder="Tags (comma separated)"
-              />
-              <div className="modal-actions">
-                <button className="btn ghost" type="button" onClick={() => setIsModalOpen(false)}>Cancel</button>
-                <button className="btn primary" type="submit">Add Note</button>
+        <ModalPortal>
+          <div className="modal-overlay" onClick={() => setIsModalOpen(false)}>
+            <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-header">
+                <h3>Add Note</h3>
+                <button className="modal-close" onClick={() => setIsModalOpen(false)}>✕</button>
               </div>
-            </form>
+              <form className="modal-form" onSubmit={handleSubmit}>
+                <input
+                  className="input"
+                  type="text"
+                  value={formData.title}
+                  onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                  placeholder="Note title"
+                  required
+                />
+                <textarea
+                  className="input"
+                  value={formData.content}
+                  onChange={(e) => setFormData({ ...formData, content: e.target.value })}
+                  placeholder="Write your note here..."
+                  rows="6"
+                  required
+                ></textarea>
+                <input
+                  className="input"
+                  type="text"
+                  value={formData.tags}
+                  onChange={(e) => setFormData({ ...formData, tags: e.target.value })}
+                  placeholder="Tags (comma separated)"
+                />
+                <div className="modal-actions">
+                  <button className="btn ghost" type="button" onClick={() => setIsModalOpen(false)}>Cancel</button>
+                  <button className="btn primary" type="submit">Add Note</button>
+                </div>
+              </form>
+            </div>
           </div>
-        </div>
+        </ModalPortal>
       )}
 
       <div className="notes-grid">

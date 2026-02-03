@@ -11,3 +11,5 @@ client/node_modules/
 server/node_modules/
 *.swp
 *.bak
+rosy.db
+*.db

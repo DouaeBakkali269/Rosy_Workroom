@@ -8,6 +8,7 @@ import MoneyPage from './pages/MoneyPage'
 import NotesPage from './pages/NotesPage'
 import WishlistPage from './pages/WishlistPage'
 import VisionPage from './pages/VisionPage'
+import WeekPlannerPage from './pages/WeekPlannerPage'
 import './styles/App.css'
 
 function App() {
@@ -15,15 +16,16 @@ function App() {
 
   const renderPage = () => {
     switch (activePage) {
-      case 'home': return <HomePage />
-      case 'dashboard': return <DashboardPage />
+      case 'home': return <HomePage onNavigate={setActivePage} />
+      case 'dashboard': return <DashboardPage onNavigate={setActivePage} />
       case 'projects': return <ProjectsPage />
       case 'kanban': return <KanbanPage />
       case 'money': return <MoneyPage />
       case 'notes': return <NotesPage />
       case 'wishlist': return <WishlistPage />
       case 'vision': return <VisionPage />
-      default: return <HomePage />
+      case 'week-planner': return <WeekPlannerPage />
+      default: return <HomePage onNavigate={setActivePage} />
     }
   }
 

@@ -1,11 +1,11 @@
 import { useState } from 'react'
 import useLockBodyScroll from '../hooks/useLockBodyScroll'
+import ModalPortal from './ModalPortal'
 import { updateKanbanCard, deleteKanbanCard } from '../services/api'
 
 export default function TaskDetails({ card, onClose, onUpdate }) {
   const [title, setTitle] = useState(card.title)
   const [description, setDescription] = useState(card.description || '')
-  const [status, setStatus] = useState(card.status)
   const [label, setLabel] = useState(card.label || '')
   const [dueDate, setDueDate] = useState(card.dueDate || '')
   const [checklist, setChecklist] = useState([])
@@ -20,7 +20,6 @@ export default function TaskDetails({ card, onClose, onUpdate }) {
       await updateKanbanCard(card.id, {
         title,
         description,
-        status,
         label,
         dueDate
       })
@@ -61,12 +60,9 @@ export default function TaskDetails({ card, onClose, onUpdate }) {
   const checklistProgress = checklist.length > 0 ? Math.round((completedCount / checklist.length) * 100) : 0
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal task-details" onClick={(e) => e.stopPropagation()}>
-        <div className="task-details-header">
-          <div className="task-status-badge">{status === 'todo' ? 'To Do' : status === 'inprogress' ? 'In Progress' : 'Done'}</div>
-          <button className="modal-close" onClick={onClose}>✕</button>
-        </div>
+    <ModalPortal>
+      <div className="modal-overlay" onClick={onClose}>
+        <div className="modal task-details" onClick={(e) => e.stopPropagation()}>
 
         <div className="task-details-body">
           <input
@@ -157,5 +153,6 @@ export default function TaskDetails({ card, onClose, onUpdate }) {
         </div>
       </div>
     </div>
+    </ModalPortal>
   )
 }

@@ -83,6 +83,47 @@ async function init() {
     )`
   );
 
+  await run(
+    `CREATE TABLE IF NOT EXISTS monthly_budgets (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      year INTEGER NOT NULL,
+      month INTEGER NOT NULL,
+      budget REAL NOT NULL,
+      UNIQUE(year, month)
+    )`
+  );
+
+  await run(
+    `CREATE TABLE IF NOT EXISTS vision_goals (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      title TEXT NOT NULL,
+      description TEXT NOT NULL,
+      icon TEXT DEFAULT '✨',
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )`
+  );
+
+  await run(
+    `CREATE TABLE IF NOT EXISTS wishlist_items (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      item TEXT NOT NULL,
+      price TEXT,
+      status TEXT DEFAULT 'wishlist',
+      purchased_date TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )`
+  );
+
+  await run(
+    `CREATE TABLE IF NOT EXISTS week_plans (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      week_key TEXT UNIQUE NOT NULL,
+      plan_data TEXT NOT NULL,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )`
+  );
+
   const columns = await all("PRAGMA table_info(kanban_cards)");
   const existing = new Set(columns.map((col) => col.name));
 
@@ -140,6 +181,29 @@ async function init() {
     }
   }
 
+  // Migrate notes table to add updated_at if missing
+  const notesColumns = await all("PRAGMA table_info(notes)");
+  const notesExisting = new Set(notesColumns.map((col) => col.name));
+  
+  if (!notesExisting.has("updated_at")) {
+    await run("ALTER TABLE notes ADD COLUMN updated_at TEXT");
+    // Set initial value for existing rows
+    await run("UPDATE notes SET updated_at = created_at WHERE updated_at IS NULL");
+  }
+
+  // Migrate wishlist_items table to ensure all columns exist
+  const wishlistColumns = await all("PRAGMA table_info(wishlist_items)");
+  const wishlistExisting = new Set(wishlistColumns.map((col) => col.name));
+  
+  if (!wishlistExisting.has("status")) {
+    await run("ALTER TABLE wishlist_items ADD COLUMN status TEXT");
+    await run("UPDATE wishlist_items SET status = 'wishlist' WHERE status IS NULL");
+  }
+  
+  if (!wishlistExisting.has("purchased_date")) {
+    await run("ALTER TABLE wishlist_items ADD COLUMN purchased_date TEXT");
+  }
+
   // Seed default notes if table is empty
   const existingNotes = await all("SELECT COUNT(*) as count FROM notes");
   if (existingNotes[0].count === 0) {
@@ -150,6 +214,101 @@ async function init() {
     ];
     for (const note of defaultNotes) {
       await run("INSERT INTO notes (title, content, tags) VALUES (?, ?, ?)", [note.title, note.content, note.tags]);
+    }
+  }
+
+  // Seed sample transactions for the last 6 months if table is empty
+  const existingTransactions = await all("SELECT COUNT(*) as count FROM transactions");
+  if (existingTransactions[0].count === 0) {
+    const now = new Date();
+    const sampleTransactions = [
+      // September 2025
+      { date: '2025-09-05', item: 'Groceries', category: 'Food', amount: 120.50 },
+      { date: '2025-09-12', item: 'Coffee shop', category: 'Food', amount: 45.00 },
+      { date: '2025-09-18', item: 'Skincare', category: 'Beauty', amount: 85.00 },
+      { date: '2025-09-25', item: 'Uber', category: 'Transport', amount: 32.00 },
+      
+      // October 2025
+      { date: '2025-10-03', item: 'Groceries', category: 'Food', amount: 150.00 },
+      { date: '2025-10-10', item: 'Nail salon', category: 'Beauty', amount: 60.00 },
+      { date: '2025-10-15', item: 'Netflix', category: 'Subscriptions', amount: 15.99 },
+      { date: '2025-10-20', item: 'Gas', category: 'Transport', amount: 50.00 },
+      { date: '2025-10-28', item: 'Restaurant', category: 'Food', amount: 75.00 },
+      
+      // November 2025
+      { date: '2025-11-02', item: 'Groceries', category: 'Food', amount: 180.00 },
+      { date: '2025-11-08', item: 'Makeup', category: 'Beauty', amount: 120.00 },
+      { date: '2025-11-14', item: 'Spotify', category: 'Subscriptions', amount: 10.99 },
+      { date: '2025-11-22', item: 'Birthday gift', category: 'Gifts', amount: 95.00 },
+      { date: '2025-11-28', item: 'Uber', category: 'Transport', amount: 28.00 },
+      
+      // December 2025
+      { date: '2025-12-05', item: 'Groceries', category: 'Food', amount: 200.00 },
+      { date: '2025-12-10', item: 'Christmas gifts', category: 'Gifts', amount: 350.00 },
+      { date: '2025-12-15', item: 'Holiday dinner', category: 'Food', amount: 120.00 },
+      { date: '2025-12-20', item: 'Hair salon', category: 'Beauty', amount: 90.00 },
+      { date: '2025-12-28', item: 'New Year outfit', category: 'Shopping', amount: 150.00 },
+      
+      // January 2026
+      { date: '2026-01-05', item: 'Groceries', category: 'Food', amount: 160.00 },
+      { date: '2026-01-12', item: 'Gym membership', category: 'Health', amount: 45.00 },
+      { date: '2026-01-18', item: 'Books', category: 'Shopping', amount: 55.00 },
+      { date: '2026-01-25', item: 'Coffee supplies', category: 'Food', amount: 40.00 },
+      
+      // February 2026 (current month)
+      { date: '2026-02-01', item: 'Groceries', category: 'Food', amount: 130.00 },
+      { date: '2026-02-02', item: 'Gas', category: 'Transport', amount: 45.00 }
+    ];
+    
+    for (const tx of sampleTransactions) {
+      await run(
+        "INSERT INTO transactions (date, item, category, amount) VALUES (?, ?, ?, ?)",
+        [tx.date, tx.item, tx.category, tx.amount]
+      );
+    }
+  }
+
+  // Seed vision goals if table is empty
+  const existingGoals = await all("SELECT COUNT(*) as count FROM vision_goals");
+  if (existingGoals[0].count === 0) {
+    const defaultGoals = [
+      { title: 'Career bloom', description: 'Launch my signature design studio & sign 5 dreamy clients.', icon: '✨' },
+      { title: 'Home sanctuary', description: 'Create a cozy studio corner with soft lighting and plants.', icon: '🌺' },
+      { title: 'Travel & joy', description: 'Plan two getaways that feel slow, romantic, and inspiring.', icon: '💙' },
+      { title: 'Wellbeing ritual', description: 'Daily journaling + weekly movement, with monthly spa time.', icon: '💛' }
+    ];
+    for (const goal of defaultGoals) {
+      await run(
+        "INSERT INTO vision_goals (title, description, icon) VALUES (?, ?, ?)",
+        [goal.title, goal.description, goal.icon]
+      );
+    }
+  }
+
+  // Seed wishlist items if table is empty
+  const existingWishlist = await all("SELECT COUNT(*) as count FROM wishlist_items");
+  if (existingWishlist[0].count === 0) {
+    const defaultWishlist = [
+      { item: 'Rose gold desk organizer', price: '28 MAD', status: 'wishlist' },
+      { item: 'Soft pink office chair', price: '120 MAD', status: 'wishlist' },
+      { item: 'Planner refill set', price: '22 MAD', status: 'wishlist' }
+    ];
+    const defaultPurchased = [
+      { item: 'Floral mousepad', status: 'purchased', purchased_date: '2026-01-25' },
+      { item: 'Notebook set', status: 'purchased', purchased_date: '2026-01-20' },
+      { item: 'Candle trio', status: 'purchased', purchased_date: '2026-01-12' }
+    ];
+    for (const item of defaultWishlist) {
+      await run(
+        "INSERT INTO wishlist_items (item, price, status) VALUES (?, ?, ?)",
+        [item.item, item.price, item.status]
+      );
+    }
+    for (const item of defaultPurchased) {
+      await run(
+        "INSERT INTO wishlist_items (item, status, purchased_date) VALUES (?, ?, ?)",
+        [item.item, item.status, item.purchased_date]
+      );
     }
   }
 }
@@ -361,6 +520,164 @@ app.delete("/api/notes/:id", async (req, res) => {
   const { id } = req.params;
   await run("DELETE FROM notes WHERE id = ?", [id]);
   res.status(204).send();
+});
+
+// Vision Goals endpoints
+app.get("/api/vision-goals", async (req, res) => {
+  const rows = await all("SELECT * FROM vision_goals ORDER BY id ASC");
+  res.json(rows);
+});
+
+app.post("/api/vision-goals", async (req, res) => {
+  const { title, description, icon } = req.body;
+  if (!title || !description) {
+    return res.status(400).send("Title and description required");
+  }
+  const result = await run(
+    "INSERT INTO vision_goals (title, description, icon) VALUES (?, ?, ?)",
+    [title, description, icon || '✨']
+  );
+  const [goal] = await all("SELECT * FROM vision_goals WHERE id = ?", [result.lastID]);
+  res.status(201).json(goal);
+});
+
+app.delete("/api/vision-goals/:id", async (req, res) => {
+  const { id } = req.params;
+  await run("DELETE FROM vision_goals WHERE id = ?", [id]);
+  res.status(204).send();
+});
+
+// Wishlist endpoints
+app.get("/api/wishlist", async (req, res) => {
+  const rows = await all("SELECT * FROM wishlist_items ORDER BY created_at DESC");
+  res.json(rows);
+});
+
+app.post("/api/wishlist", async (req, res) => {
+  const { item, price, status } = req.body;
+  if (!item) {
+    return res.status(400).send("Item required");
+  }
+  const result = await run(
+    "INSERT INTO wishlist_items (item, price, status) VALUES (?, ?, ?)",
+    [item, price || '0 MAD', status || 'wishlist']
+  );
+  const [wishlistItem] = await all("SELECT * FROM wishlist_items WHERE id = ?", [result.lastID]);
+  res.status(201).json(wishlistItem);
+});
+
+app.put("/api/wishlist/:id", async (req, res) => {
+  const { id } = req.params;
+  const existing = await all("SELECT * FROM wishlist_items WHERE id = ?", [id]);
+  if (!existing.length) return res.status(404).send("Not found");
+  
+  const { status, purchased_date } = req.body;
+  const next = {
+    status: status ?? existing[0].status,
+    purchased_date: purchased_date ?? existing[0].purchased_date
+  };
+  
+  await run(
+    "UPDATE wishlist_items SET status = ?, purchased_date = ? WHERE id = ?",
+    [next.status, next.purchased_date, id]
+  );
+  
+  const [item] = await all("SELECT * FROM wishlist_items WHERE id = ?", [id]);
+  res.json(item);
+});
+
+app.delete("/api/wishlist/:id", async (req, res) => {
+  const { id } = req.params;
+  await run("DELETE FROM wishlist_items WHERE id = ?", [id]);
+  res.status(204).send();
+});
+
+// Monthly Budgets
+app.get("/api/monthly-budgets/:year/:month", async (req, res) => {
+  const { year, month } = req.params;
+  const rows = await all(
+    "SELECT * FROM monthly_budgets WHERE year = ? AND month = ?",
+    [year, month]
+  );
+  res.json(rows.length > 0 ? rows[0] : null);
+});
+
+app.post("/api/monthly-budgets", async (req, res) => {
+  const { year, month, budget } = req.body;
+  if (!year || !month || budget === undefined) {
+    return res.status(400).send("Year, month, and budget required");
+  }
+  
+  const existing = await all(
+    "SELECT * FROM monthly_budgets WHERE year = ? AND month = ?",
+    [year, month]
+  );
+  
+  if (existing.length > 0) {
+    await run(
+      "UPDATE monthly_budgets SET budget = ? WHERE year = ? AND month = ?",
+      [budget, year, month]
+    );
+  } else {
+    await run(
+      "INSERT INTO monthly_budgets (year, month, budget) VALUES (?, ?, ?)",
+      [year, month, budget]
+    );
+  }
+  
+  const [record] = await all(
+    "SELECT * FROM monthly_budgets WHERE year = ? AND month = ?",
+    [year, month]
+  );
+  res.status(201).json(record);
+});
+
+// Week Planner
+app.get("/api/week-plan", async (req, res) => {
+  const weekKey = new Date().toISOString().split('T')[0].substring(0, 7); // YYYY-MM
+  const rows = await all(
+    "SELECT plan_data FROM week_plans WHERE week_key = ?",
+    [weekKey]
+  );
+  
+  if (rows.length > 0) {
+    try {
+      res.json(JSON.parse(rows[0].plan_data));
+    } catch {
+      res.json([]);
+    }
+  } else {
+    res.json([]);
+  }
+});
+
+app.post("/api/week-plan", async (req, res) => {
+  const { body } = req;
+  if (!Array.isArray(body)) {
+    return res.status(400).send("Week plan data required");
+  }
+  
+  const weekKey = new Date().toISOString().split('T')[0].substring(0, 7); // YYYY-MM
+  const planData = JSON.stringify(body);
+  
+  const existing = await all(
+    "SELECT id FROM week_plans WHERE week_key = ?",
+    [weekKey]
+  );
+  
+  if (existing.length > 0) {
+    await run(
+      "UPDATE week_plans SET plan_data = ?, updated_at = CURRENT_TIMESTAMP WHERE week_key = ?",
+      [planData, weekKey]
+    );
+  } else {
+    await run(
+      "INSERT INTO week_plans (week_key, plan_data) VALUES (?, ?)",
+      [weekKey, planData]
+    );
+  }
+  
+  res.status(201).json(body);
 });
 
 init()

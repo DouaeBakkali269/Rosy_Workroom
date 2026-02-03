@@ -1,17 +1,31 @@
 import { useState, useEffect } from 'react'
-import { getTasks, createTask, updateTask, deleteTask } from '../services/api'
+import { getTasks, createTask, updateTask, deleteTask, getNotes, getTransactions } from '../services/api'
 
-export default function DashboardPage() {
+export default function DashboardPage({ onNavigate }) {
   const [tasks, setTasks] = useState([])
+  const [notes, setNotes] = useState([])
+  const [transactions, setTransactions] = useState([])
   const [newTask, setNewTask] = useState('')
 
   useEffect(() => {
     loadTasks()
+    loadNotes()
+    loadTransactions()
   }, [])
 
   async function loadTasks() {
     const data = await getTasks()
     setTasks(data)
+  }
+
+  async function loadNotes() {
+    const data = await getNotes()
+    setNotes(data)
+  }
+
+  async function loadTransactions() {
+    const data = await getTransactions()
+    setTransactions(data)
   }
 
   async function handleAddTask(e) {
@@ -32,40 +46,47 @@ export default function DashboardPage() {
     loadTasks()
   }
 
+  const recentNotes = notes.slice(0, 2)
+
+  // Calculate monthly spending for the last 6 months
+  const getMonthlySpending = () => {
+    const now = new Date()
+    const months = []
+    
+    // Generate last 6 months
+    for (let i = 5; i >= 0; i--) {
+      const date = new Date(now.getFullYear(), now.getMonth() - i, 1)
+      months.push({
+        year: date.getFullYear(),
+        month: date.getMonth() + 1,
+        name: date.toLocaleString('default', { month: 'short' }),
+        spending: 0
+      })
+    }
+    
+    // Calculate spending per month
+    transactions.forEach(tx => {
+      const txDate = new Date(tx.date)
+      const txYear = txDate.getFullYear()
+      const txMonth = txDate.getMonth() + 1
+      
+      const monthData = months.find(m => m.year === txYear && m.month === txMonth)
+      if (monthData) {
+        monthData.spending += tx.amount
+      }
+    })
+    
+    return months
+  }
+
+  const monthlyData = getMonthlySpending()
+  const maxSpending = Math.max(...monthlyData.map(m => m.spending), 1)
+
   return (
     <section className="page-section active">
-      <div className="hero-centered">
-        <div className="hero-panel">
-          <div className="hero-badge">Your Cozy Workroom</div>
-          <h2>Welcome back, sweetheart ✿</h2>
-          <p>Today is about gentle focus. Pick one project, move one card, and log one win.</p>
-          <div className="hero-actions">
-            <button className="btn primary">Start a focus session</button>
-            <button className="btn ghost">Plan my week</button>
-          </div>
-          <div className="kawaii-sparkles">✨ 🍓 💗 ✨</div>
-        </div>
-        <div className="hero-card">
-          <div className="hero-card-title">This week</div>
-          <div className="stat-grid">
-            <div className="stat">
-              <div className="stat-value">5</div>
-              <div className="stat-label">Projects active</div>
-            </div>
-            <div className="stat">
-              <div className="stat-value">18</div>
-              <div className="stat-label">Tasks moved</div>
-            </div>
-            <div className="stat">
-              <div className="stat-value">$240</div>
-              <div className="stat-label">Spent</div>
-            </div>
-            <div className="stat">
-              <div className="stat-value">12</div>
-              <div className="stat-label">Notes added</div>
-            </div>
-          </div>
-        </div>
+      <div className="hero-text-section">
+        <h1 className="hero-main-text">Welcome back sweetheart to your cozy workroom ✿</h1>
+        <p className="hero-sub-text">Today is about gentle focus. Pick one project, move one card, and log one win.</p>
       </div>
 
       <div className="grid-3">
@@ -90,7 +111,7 @@ export default function DashboardPage() {
               ))
             )}
           </ul>
-          <form className="inline-form" onSubmit={handleAddTask}>
+          <form className="task-add-form" onSubmit={handleAddTask}>
             <input
               className="input"
               type="text"
@@ -103,27 +124,35 @@ export default function DashboardPage() {
         </div>
         <div className="card">
           <div className="card-title">Money snapshot</div>
-          <div className="money-pill">Budget: $1,200</div>
-          <div className="money-pill">Spent: $640</div>
-          <div className="money-pill">Remaining: $560</div>
-          <div className="chart">
-            <div className="chart-bar" style={{ height: '65%' }}></div>
-            <div className="chart-bar" style={{ height: '40%' }}></div>
-            <div className="chart-bar" style={{ height: '85%' }}></div>
-            <div className="chart-bar" style={{ height: '55%' }}></div>
+          <div className="money-chart-container">
+            {monthlyData.map((month, idx) => (
+              <div key={idx} className="month-bar-wrapper">
+                <div 
+                  className="month-bar" 
+                  style={{ height: `${(month.spending / maxSpending) * 100}%` }}
+                  title={`${month.name}: ${month.spending.toFixed(2)} MAD`}
+                ></div>
+                <div className="month-label">{month.name}</div>
+                <div className="month-amount">{month.spending > 0 ? month.spending.toFixed(0) : '0'} MAD</div>
+              </div>
+            ))}
           </div>
         </div>
         <div className="card">
-          <div className="card-title">Notes bouquet</div>
-          <div className="note">
-            <div className="note-title">New project idea</div>
-            <div className="note-body">Create a pastel landing page with soft animations.</div>
+          <div className="card-title">Recent notes</div>
+          {recentNotes.length === 0 ? (
+            <div className="empty-state">No notes yet. Start jotting down thoughts 💗</div>
+          ) : (
+            recentNotes.map(note => (
+              <div key={note.id} className="note">
+                <div className="note-title">{note.title}</div>
+                <div className="note-body">{note.content.substring(0, 50)}...</div>
+              </div>
+            ))
+          )}
+          <div className="notes-footer">
+            <button className="notes-link" onClick={() => onNavigate('notes')}>Add more notes</button>
           </div>
-          <div className="note">
-            <div className="note-title">Client feedback</div>
-            <div className="note-body">Keep typography playful, add rounded buttons.</div>
-          </div>
-          <button className="btn ghost full">Write a note</button>
         </div>
       </div>
     </section>

@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react'
 import useLockBodyScroll from '../hooks/useLockBodyScroll'
+import ModalPortal from '../components/ModalPortal'
+import { getWishlist, createWishlistItem, updateWishlistItem, deleteWishlistItem } from '../services/api'
 
 export default function WishlistPage() {
   const [wishlist, setWishlist] = useState([])
@@ -13,65 +15,55 @@ export default function WishlistPage() {
   useLockBodyScroll(isModalOpen)
 
   useEffect(() => {
-    // Load from localStorage
-    const savedWishlist = localStorage.getItem('wishlist')
-    const savedPurchased = localStorage.getItem('purchased')
-    
-    if (savedWishlist) {
-      setWishlist(JSON.parse(savedWishlist))
-    } else {
-      setWishlist([
-        { id: 1, item: 'Rose gold desk organizer', price: '$28' },
-        { id: 2, item: 'Soft pink office chair', price: '$120' },
-        { id: 3, item: 'Planner refill set', price: '$22' }
-      ])
-    }
-    
-    if (savedPurchased) {
-      setPurchased(JSON.parse(savedPurchased))
-    } else {
-      setPurchased([
-        { id: 1, item: 'Floral mousepad', date: 'Jan 25' },
-        { id: 2, item: 'Notebook set', date: 'Jan 20' },
-        { id: 3, item: 'Candle trio', date: 'Jan 12' }
-      ])
-    }
+    loadItems()
   }, [])
 
-  function handleSubmit(e) {
+  async function loadItems() {
+    try {
+      const data = await getWishlist()
+      setWishlist(data.filter(item => item.status === 'wishlist'))
+      setPurchased(data.filter(item => item.status === 'purchased'))
+    } catch (error) {
+      console.error('Failed to load wishlist:', error)
+    }
+  }
+
+  async function handleSubmit(e) {
     e.preventDefault()
     if (!formData.item.trim()) return
     
-    const newItem = {
-      id: Date.now(),
-      item: formData.item,
-      price: formData.price || '$0'
+    try {
+      await createWishlistItem({
+        item: formData.item,
+        price: formData.price || '0 MAD',
+        status: 'wishlist'
+      })
+      setFormData({ item: '', price: '' })
+      setIsModalOpen(false)
+      loadItems()
+    } catch (error) {
+      console.error('Failed to create wishlist item:', error)
     }
-    
-    const updated = [...wishlist, newItem]
-    setWishlist(updated)
-    localStorage.setItem('wishlist', JSON.stringify(updated))
-    setFormData({ item: '', price: '' })
-    setIsModalOpen(false)
   }
 
-  function handleDelete(id) {
-    const updated = wishlist.filter(w => w.id !== id)
-    setWishlist(updated)
-    localStorage.setItem('wishlist', JSON.stringify(updated))
+  async function handleDelete(id) {
+    try {
+      await deleteWishlistItem(id)
+      loadItems()
+    } catch (error) {
+      console.error('Failed to delete wishlist item:', error)
+    }
   }
 
-  function handleMarkPurchased(id) {
-    const item = wishlist.find(w => w.id === id)
-    if (item) {
-      const newPurchased = [...purchased, {
-        id: Date.now(),
-        item: item.item,
-        date: new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
-      }]
-      setPurchased(newPurchased)
-      localStorage.setItem('purchased', JSON.stringify(newPurchased))
-      handleDelete(id)
+  async function handleMarkPurchased(id) {
+    try {
+      await updateWishlistItem(id, {
+        status: 'purchased',
+        purchased_date: new Date().toISOString().split('T')[0]
+      })
+      loadItems()
+    } catch (error) {
+      console.error('Failed to mark item as purchased:', error)
     }
   }
 
@@ -83,8 +75,9 @@ export default function WishlistPage() {
       </div>
 
       {isModalOpen && (
-        <div className="modal-overlay" onClick={() => setIsModalOpen(false)}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+        <ModalPortal>
+          <div className="modal-overlay" onClick={() => setIsModalOpen(false)}>
+            <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h3>Add Wishlist Item</h3>
               <button className="modal-close" onClick={() => setIsModalOpen(false)}>✕</button>
@@ -110,8 +103,9 @@ export default function WishlistPage() {
                 <button className="btn primary" type="submit">Add Item</button>
               </div>
             </form>
+            </div>
           </div>
-        </div>
+        </ModalPortal>
       )}
 
       <div className="grid-2">
@@ -136,7 +130,7 @@ export default function WishlistPage() {
             {purchased.map(p => (
               <li key={p.id}>
                 <span>{p.item}</span>
-                <span>{p.date}</span>
+                <span>{new Date(p.purchased_date).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}</span>
               </li>
             ))}
           </ul>

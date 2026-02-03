@@ -46,3 +46,22 @@ export const getNotes = () => apiRequest('notes')
 export const createNote = (data) => apiRequest('notes', { method: 'POST', body: JSON.stringify(data) })
 export const updateNote = (id, data) => apiRequest(`notes/${id}`, { method: 'PUT', body: JSON.stringify(data) })
 export const deleteNote = (id) => apiRequest(`notes/${id}`, { method: 'DELETE' })
+
+// Monthly Budgets
+export const getMonthlyBudget = (year, month) => apiRequest(`monthly-budgets/${year}/${month}`)
+export const setMonthlyBudget = (data) => apiRequest('monthly-budgets', { method: 'POST', body: JSON.stringify(data) })
+
+// Vision Goals
+export const getVisionGoals = () => apiRequest('vision-goals')
+export const createVisionGoal = (data) => apiRequest('vision-goals', { method: 'POST', body: JSON.stringify(data) })
+export const deleteVisionGoal = (id) => apiRequest(`vision-goals/${id}`, { method: 'DELETE' })
+
+// Wishlist
+export const getWishlist = () => apiRequest('wishlist')
+export const createWishlistItem = (data) => apiRequest('wishlist', { method: 'POST', body: JSON.stringify(data) })
+export const updateWishlistItem = (id, data) => apiRequest(`wishlist/${id}`, { method: 'PUT', body: JSON.stringify(data) })
+export const deleteWishlistItem = (id) => apiRequest(`wishlist/${id}`, { method: 'DELETE' })
+
+// Week Planner
+export const getWeekPlan = () => apiRequest('week-plan')
+export const saveWeekPlan = (data) => apiRequest('week-plan', { method: 'POST', body: JSON.stringify(data) })
