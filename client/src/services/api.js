@@ -40,3 +40,9 @@ export const getKanbanCards = (projectId = 0) => apiRequest(`kanban/${projectId}
 export const createKanbanCard = (data) => apiRequest('kanban', { method: 'POST', body: JSON.stringify(data) })
 export const updateKanbanCard = (id, data) => apiRequest(`kanban/${id}`, { method: 'PUT', body: JSON.stringify(data) })
 export const deleteKanbanCard = (id) => apiRequest(`kanban/${id}`, { method: 'DELETE' })
+
+// Notes
+export const getNotes = () => apiRequest('notes')
+export const createNote = (data) => apiRequest('notes', { method: 'POST', body: JSON.stringify(data) })
+export const updateNote = (id, data) => apiRequest(`notes/${id}`, { method: 'PUT', body: JSON.stringify(data) })
+export const deleteNote = (id) => apiRequest(`notes/${id}`, { method: 'DELETE' })

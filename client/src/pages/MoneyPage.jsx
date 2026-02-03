@@ -1,14 +1,18 @@
 import { useState, useEffect } from 'react'
+import useLockBodyScroll from '../hooks/useLockBodyScroll'
 import { getTransactions, createTransaction, deleteTransaction } from '../services/api'
 
 export default function MoneyPage() {
   const [transactions, setTransactions] = useState([])
+  const [isModalOpen, setIsModalOpen] = useState(false)
   const [formData, setFormData] = useState({
     date: '',
     item: '',
     category: '',
     amount: ''
   })
+
+  useLockBodyScroll(isModalOpen)
 
   useEffect(() => {
     loadTransactions()
@@ -25,6 +29,7 @@ export default function MoneyPage() {
     if (!date || !item || !category || !amount) return
     await createTransaction({ ...formData, amount: parseFloat(amount) })
     setFormData({ date: '', item: '', category: '', amount: '' })
+    setIsModalOpen(false)
     loadTransactions()
   }
 
@@ -37,44 +42,58 @@ export default function MoneyPage() {
     <section className="page-section active">
       <div className="section-header">
         <h2>Money Tracker</h2>
+        <button className="btn primary" onClick={() => setIsModalOpen(true)}>Add transaction</button>
       </div>
-      <div className="money-actions">
-        <form className="inline-form" onSubmit={handleSubmit}>
-          <input
-            className="input"
-            type="date"
-            value={formData.date}
-            onChange={(e) => setFormData({ ...formData, date: e.target.value })}
-            required
-          />
-          <input
-            className="input"
-            type="text"
-            value={formData.item}
-            onChange={(e) => setFormData({ ...formData, item: e.target.value })}
-            placeholder="Item"
-            required
-          />
-          <input
-            className="input"
-            type="text"
-            value={formData.category}
-            onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-            placeholder="Category"
-            required
-          />
-          <input
-            className="input"
-            type="number"
-            step="0.01"
-            value={formData.amount}
-            onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
-            placeholder="Amount"
-            required
-          />
-          <button className="btn primary" type="submit">Add</button>
-        </form>
-      </div>
+
+      {isModalOpen && (
+        <div className="modal-overlay" onClick={() => setIsModalOpen(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>Add Transaction</h3>
+              <button className="modal-close" onClick={() => setIsModalOpen(false)}>✕</button>
+            </div>
+            <form className="modal-form" onSubmit={handleSubmit}>
+              <input
+                className="input"
+                type="date"
+                value={formData.date}
+                onChange={(e) => setFormData({ ...formData, date: e.target.value })}
+                required
+              />
+              <input
+                className="input"
+                type="text"
+                value={formData.item}
+                onChange={(e) => setFormData({ ...formData, item: e.target.value })}
+                placeholder="Item"
+                required
+              />
+              <input
+                className="input"
+                type="text"
+                value={formData.category}
+                onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+                placeholder="Category"
+                required
+              />
+              <input
+                className="input"
+                type="number"
+                step="0.01"
+                value={formData.amount}
+                onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
+                placeholder="Amount"
+                required
+              />
+              <div className="modal-actions">
+                <button className="btn ghost" type="button" onClick={() => setIsModalOpen(false)}>Cancel</button>
+                <button className="btn primary" type="submit">Add Transaction</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       <div className="grid-2">
         <div className="card">
           <div className="card-title">Monthly overview</div>
@@ -112,6 +131,7 @@ export default function MoneyPage() {
           <div className="progress-label">65% of budget used</div>
         </div>
       </div>
+
       <div className="card table-card">
         <div className="card-title">Recent transactions</div>
         <table>
@@ -133,7 +153,7 @@ export default function MoneyPage() {
                   <td>{tx.date}</td>
                   <td>{tx.item}</td>
                   <td>{tx.category}</td>
-                  <td>{Number(tx.amount).toFixed(2)}</td>
+                  <td>${Number(tx.amount).toFixed(2)}</td>
                   <td>
                     <button className="icon-btn" onClick={() => handleDelete(tx.id)}>✕</button>
                   </td>

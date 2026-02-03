@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import useLockBodyScroll from '../hooks/useLockBodyScroll'
 import { updateKanbanCard, deleteKanbanCard } from '../services/api'
 
 export default function TaskDetails({ card, onClose, onUpdate }) {
@@ -10,6 +11,8 @@ export default function TaskDetails({ card, onClose, onUpdate }) {
   const [checklist, setChecklist] = useState([])
   const [checklistInput, setChecklistInput] = useState('')
   const [isSaving, setIsSaving] = useState(false)
+
+  useLockBodyScroll(true)
 
   async function handleSave() {
     setIsSaving(true)
@@ -61,26 +64,11 @@ export default function TaskDetails({ card, onClose, onUpdate }) {
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal task-details" onClick={(e) => e.stopPropagation()}>
         <div className="task-details-header">
-          <button className="task-delete-btn" onClick={handleDelete} title="Delete task">🗑️ Delete</button>
+          <div className="task-status-badge">{status === 'todo' ? 'To Do' : status === 'inprogress' ? 'In Progress' : 'Done'}</div>
           <button className="modal-close" onClick={onClose}>✕</button>
         </div>
 
         <div className="task-details-body">
-          <div className="task-status-section">
-            <select
-              className="status-select"
-              value={status}
-              onChange={(e) => {
-                setStatus(e.target.value)
-                handleSave()
-              }}
-            >
-              <option value="todo">📋 To Do</option>
-              <option value="inprogress">⚙️ In Progress</option>
-              <option value="done">✅ Done</option>
-            </select>
-          </div>
-
           <input
             className="task-title-input"
             type="text"
@@ -92,15 +80,15 @@ export default function TaskDetails({ card, onClose, onUpdate }) {
 
           <div className="task-actions">
             <button className="task-action-btn" title="Add subtask">+ Add</button>
-            <button className="task-action-btn" title="Add tags">🏷️ Tags</button>
-            <button className="task-action-btn" title="Set dates">📅 Dates</button>
-            <button className="task-action-btn" title="Add checklist items">☑️ Checklist</button>
-            <button className="task-action-btn" title="Assign members">👥 Members</button>
+            <button className="task-action-btn" title="Add tags">Tags</button>
+            <button className="task-action-btn" title="Set dates">Dates</button>
+            <button className="task-action-btn" title="Add checklist items">Checklist</button>
+            <button className="task-action-btn" title="Assign members">Members</button>
           </div>
 
           {description || checklistInput.length > 0 ? (
             <div className="task-section">
-              <h4 className="task-section-title">📝 Description</h4>
+              <h4 className="task-section-title">Description</h4>
               <textarea
                 className="task-description"
                 value={description}
@@ -112,7 +100,7 @@ export default function TaskDetails({ card, onClose, onUpdate }) {
           ) : null}
 
           <div className="task-section">
-            <h4 className="task-section-title">✓ Checklist</h4>
+            <h4 className="task-section-title">Checklist</h4>
             <div className="task-checklist-progress">{checklistProgress}%</div>
             
             {checklist.length > 0 && (
@@ -159,8 +147,12 @@ export default function TaskDetails({ card, onClose, onUpdate }) {
 
           <div className="task-meta">
             {label && <span className="task-label">{label}</span>}
-            {dueDate && <span className="task-due">📅 {dueDate}</span>}
-            {isSaving && <span className="task-saving">💾 Saving...</span>}
+            {dueDate && <span className="task-due">{dueDate}</span>}
+            {isSaving && <span className="task-saving">Saving...</span>}
+          </div>
+
+          <div className="task-footer">
+            <button className="task-delete-icon" onClick={handleDelete} title="Delete task">🗑</button>
           </div>
         </div>
       </div>

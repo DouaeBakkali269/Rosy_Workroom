@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import useLockBodyScroll from '../hooks/useLockBodyScroll'
 import { getKanbanCards, createKanbanCard, updateKanbanCard, deleteKanbanCard } from '../services/api'
 import TaskDetails from './TaskDetails'
 
@@ -14,6 +15,8 @@ export default function ProjectKanban({ project, onBack }) {
     dueDate: '',
     description: ''
   })
+
+  useLockBodyScroll(isModalOpen || Boolean(selectedCard))
 
   useEffect(() => {
     loadCards()

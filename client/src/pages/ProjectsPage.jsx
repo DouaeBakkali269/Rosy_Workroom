@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import useLockBodyScroll from '../hooks/useLockBodyScroll'
 import { getProjects, createProject, deleteProject } from '../services/api'
 import ProjectKanban from '../components/ProjectKanban'
 
@@ -12,6 +13,8 @@ export default function ProjectsPage() {
     dueDate: '',
     description: ''
   })
+
+  useLockBodyScroll(isModalOpen)
 
   useEffect(() => {
     loadProjects()
@@ -114,12 +117,14 @@ export default function ProjectsPage() {
         ) : (
           projects.map(project => (
             <div key={project.id} className="project-card">
-              <div className="project-tag">{project.tag || 'Project'}</div>
+              <div className="project-header-row">
+                <div className="project-tag">{project.tag || 'Project'}</div>
+                <span className="project-task-count">Tasks: {project.taskCount || 0}</span>
+              </div>
               <div className="project-title">{project.name}</div>
               <p className="project-desc">{project.description || ''}</p>
               <div className="project-meta">
                 <span>Due: {project.dueDate || 'TBD'}</span>
-                <span>Tasks: {project.taskCount || 0}</span>
               </div>
               <div className="card-actions">
                 <button className="btn primary" onClick={() => setSelectedProject(project)}>Open Board</button>

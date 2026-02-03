@@ -27,9 +27,6 @@ export default function Navbar({ activePage, onNavigate }) {
         ))}
       </div>
 
-      <div className="navbar-footer">
-        <div className="pill">Free forever ✨</div>
-      </div>
     </nav>
   )
 }
