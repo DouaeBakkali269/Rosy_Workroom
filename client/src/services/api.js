@@ -1,8 +1,21 @@
 const API_BASE = '/api'
 
+function getUserId() {
+  const user = localStorage.getItem('user')
+  if (user) {
+    return JSON.parse(user).id
+  }
+  return null
+}
+
 async function apiRequest(path, options = {}) {
+  const userId = getUserId()
+  
   const response = await fetch(`${API_BASE}/${path}`, {
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 
+      'Content-Type': 'application/json',
+      'X-User-ID': userId || ''
+    },
     ...options,
   })
 

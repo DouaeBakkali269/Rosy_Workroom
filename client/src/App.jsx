@@ -19,35 +19,42 @@ function App() {
   useEffect(() => {
     // Check if user is logged in
     const storedUser = localStorage.getItem('user')
+    console.log('🔍 Checking for stored user:', storedUser)
     if (storedUser) {
       setUser(JSON.parse(storedUser))
     }
   }, [])
 
   function handleLogin(userData) {
+    console.log('✅ User logged in:', userData)
     setUser(userData)
+    localStorage.setItem('user', JSON.stringify(userData))
     setActivePage('home')
   }
 
   function handleLogout() {
+    console.log('👋 User logged out')
     localStorage.removeItem('user')
     setUser(null)
     setActivePage('home')
   }
 
-  // Login is optional - comment out to disable mandatory login
-  // if (!user) {
-  //   return (
-  //     <div className="page">
-  //       <main className="content">
-  //         <LoginPage onLogin={handleLogin} />
-  //       </main>
-  //       <div className="floating-shapes">
-  //         <span></span><span></span><span></span><span></span>
-  //       </div>
-  //     </div>
-  //   )
-  // }
+  console.log('🎯 Current user state:', user)
+
+  // Require login to access the app
+  if (!user) {
+    console.log('🚪 No user - showing LoginPage')
+    return (
+      <div className="page">
+        <main className="content">
+          <LoginPage onLogin={handleLogin} />
+        </main>
+        <div className="floating-shapes">
+          <span></span><span></span><span></span><span></span>
+        </div>
+      </div>
+    )
+  }
 
   const renderPage = () => {
     switch (activePage) {
