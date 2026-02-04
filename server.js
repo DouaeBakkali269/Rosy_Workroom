@@ -43,6 +43,7 @@ function all(sql, params = []) {
       if (err) reject(err);
       else resolve(rows);
     });
+  });
 }
 
 async function init() {
