@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { getTasks, createTask, updateTask, deleteTask, getNotes, getTransactions } from '../services/api'
 
-export default function DashboardPage({ onNavigate }) {
+export default function DashboardPage() {
+  const navigate = useNavigate()
   const [tasks, setTasks] = useState([])
   const [notes, setNotes] = useState([])
   const [transactions, setTransactions] = useState([])
@@ -151,7 +153,7 @@ export default function DashboardPage({ onNavigate }) {
             ))
           )}
           <div className="notes-footer">
-            <button className="notes-link" onClick={() => onNavigate('notes')}>Add more notes</button>
+            <button className="notes-link" onClick={() => navigate('/notes')}>Add more notes</button>
           </div>
         </div>
       </div>

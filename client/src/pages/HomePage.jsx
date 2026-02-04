@@ -1,6 +1,10 @@
-export default function HomePage({ onNavigate }) {
-  const handleNavigate = (page) => {
-    if (onNavigate) onNavigate(page)
+import { useNavigate } from 'react-router-dom'
+
+export default function HomePage() {
+  const navigate = useNavigate()
+
+  const handleNavigate = (path) => {
+    navigate(path)
   }
 
   return (
@@ -16,13 +20,13 @@ export default function HomePage({ onNavigate }) {
           </p>
           <div className="hero-actions">
             <div className="hero-actions-row hero-actions-row-1">
-              <button className="btn primary hero-btn" onClick={() => handleNavigate('projects')}>Plan Your Projects</button>
-              <button className="btn ghost hero-btn" onClick={() => handleNavigate('week-planner')}>Plan Your Week</button>
-              <button className="btn ghost hero-btn" onClick={() => handleNavigate('money')}>Track Your Money</button>
+              <button className="btn primary hero-btn" onClick={() => handleNavigate('/projects')}>Plan Your Projects</button>
+              <button className="btn ghost hero-btn" onClick={() => handleNavigate('/week-planner')}>Plan Your Week</button>
+              <button className="btn ghost hero-btn" onClick={() => handleNavigate('/money')}>Track Your Money</button>
             </div>
             <div className="hero-actions-row hero-actions-row-2">
-              <button className="btn ghost hero-btn" onClick={() => handleNavigate('vision')}>Add Your Goals</button>
-              <button className="btn ghost hero-btn" onClick={() => handleNavigate('notes')}>Take Notes</button>
+              <button className="btn ghost hero-btn" onClick={() => handleNavigate('/vision')}>Add Your Goals</button>
+              <button className="btn ghost hero-btn" onClick={() => handleNavigate('/notes')}>Take Notes</button>
             </div>
           </div>
         </div>
