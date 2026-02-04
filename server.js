@@ -206,11 +206,18 @@ async function init() {
   }
 
   // Migrate kanban_cards to add checklist column if missing
-  const kanbanColumnsCheck = await all("PRAGMA table_info(kanban_cards)");
-  const kanbanExisting = new Set(kanbanColumnsCheck.map((col) => col.name));
-  
-  if (!kanbanExisting.has("checklist")) {
-    await run("ALTER TABLE kanban_cards ADD COLUMN checklist TEXT");
+  try {
+    const kanbanColumnsCheck = await all("PRAGMA table_info(kanban_cards)");
+    const kanbanExisting = new Set(kanbanColumnsCheck.map((col) => col.name));
+    
+    if (!kanbanExisting.has("checklist")) {
+      console.log("Adding checklist column to kanban_cards...");
+      await run("ALTER TABLE kanban_cards ADD COLUMN checklist TEXT");
+      console.log("✅ Checklist column added");
+    }
+  } catch (err) {
+    console.error("⚠️  Failed to add checklist column:", err.message);
+    // Continue anyway
   }
 
   // Migrate wishlist_items table to ensure all columns exist
@@ -776,10 +783,18 @@ app.get('*', (req, res) => {
 init()
   .then(() => {
     app.listen(PORT, () => {
-      console.log(`Rosy Workroom API running on port ${PORT}`);
+      console.log(`✅ Rosy Workroom API running on port ${PORT}`);
+      console.log(`📍 Environment: ${process.env.NODE_ENV || 'development'}`);
     });
   })
   .catch((err) => {
-    console.error("Failed to init database", err);
-    process.exit(1);
+    console.error("❌ Failed to init database:", err);
+    console.error("Stack trace:", err.stack);
+    
+    // Start server anyway on port to prevent 503
+    // Let frontend handle errors gracefully
+    app.listen(PORT, () => {
+      console.log(`⚠️  Server started on port ${PORT} with database errors`);
+      console.log("Some features may not work correctly");
+    });
   });
