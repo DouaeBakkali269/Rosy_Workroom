@@ -1,6 +1,7 @@
 const express = require("express");
 const cors = require("cors");
 const sqlite3 = require("sqlite3").verbose();
+const path = require("path");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -8,6 +9,9 @@ const db = new sqlite3.Database("rosy.db");
 
 app.use(cors());
 app.use(express.json());
+
+// Serve static files from React build
+app.use(express.static(path.join(__dirname, 'client/dist')));
 
 function run(sql, params = []) {
   return new Promise((resolve, reject) => {
@@ -680,10 +684,15 @@ app.post("/api/week-plan", async (req, res) => {
   res.status(201).json(body);
 });
 
+// Serve React app for all non-API routes
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'client/dist/index.html'));
+});
+
 init()
   .then(() => {
     app.listen(PORT, () => {
-      console.log(`Rosy Workroom API running on http://localhost:${PORT}`);
+      console.log(`Rosy Workroom API running on port ${PORT}`);
     });
   })
   .catch((err) => {
