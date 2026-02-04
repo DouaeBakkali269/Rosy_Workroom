@@ -128,6 +128,16 @@ async function init() {
     )`
   );
 
+  await run(
+    `CREATE TABLE IF NOT EXISTS users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      username TEXT UNIQUE NOT NULL,
+      password TEXT NOT NULL,
+      email TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )`
+  );
+
   const columns = await all("PRAGMA table_info(kanban_cards)");
   const existing = new Set(columns.map((col) => col.name));
 
@@ -193,6 +203,14 @@ async function init() {
     await run("ALTER TABLE notes ADD COLUMN updated_at TEXT");
     // Set initial value for existing rows
     await run("UPDATE notes SET updated_at = created_at WHERE updated_at IS NULL");
+  }
+
+  // Migrate kanban_cards to add checklist column if missing
+  const kanbanColumnsCheck = await all("PRAGMA table_info(kanban_cards)");
+  const kanbanExisting = new Set(kanbanColumnsCheck.map((col) => col.name));
+  
+  if (!kanbanExisting.has("checklist")) {
+    await run("ALTER TABLE kanban_cards ADD COLUMN checklist TEXT");
   }
 
   // Migrate wishlist_items table to ensure all columns exist
@@ -427,25 +445,34 @@ app.get("/api/kanban/:projectId", async (req, res) => {
     "SELECT * FROM kanban_cards WHERE project_id = ? OR (project_id IS NULL AND ? = '0') ORDER BY id DESC",
     [projectId === '0' ? null : projectId, projectId]
   );
-  res.json(rows);
+  // Parse checklist JSON
+  const cardsWithChecklist = rows.map(card => ({
+    ...card,
+    checklist: card.checklist ? JSON.parse(card.checklist) : []
+  }));
+  res.json(cardsWithChecklist);
 });
 
 app.post("/api/kanban", async (req, res) => {
-  const { project_id, title, label, status, dueDate, description, amount } = req.body;
+  const { project_id, title, label, status, dueDate, description, amount, checklist } = req.body;
   if (!title) return res.status(400).send("Title required");
+  const checklistJson = JSON.stringify(checklist || []);
   const result = await run(
-    "INSERT INTO kanban_cards (project_id, title, label, status, dueDate, description, amount) VALUES (?, ?, ?, ?, ?, ?, ?)",
-    [project_id || null, title, label || null, status || 'todo', dueDate || null, description || null, amount || 0]
+    "INSERT INTO kanban_cards (project_id, title, label, status, dueDate, description, amount, checklist) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+    [project_id || null, title, label || null, status || 'todo', dueDate || null, description || null, amount || 0, checklistJson]
   );
   const [card] = await all("SELECT * FROM kanban_cards WHERE id = ?", [result.lastID]);
-  res.status(201).json(card);
+  res.status(201).json({
+    ...card,
+    checklist: card.checklist ? JSON.parse(card.checklist) : []
+  });
 });
 
 app.put("/api/kanban/:id", async (req, res) => {
   const { id } = req.params;
   const existing = await all("SELECT * FROM kanban_cards WHERE id = ?", [id]);
   if (!existing.length) return res.status(404).send("Not found");
-  const { title, label, status, dueDate, description, amount } = req.body;
+  const { title, label, status, dueDate, description, amount, checklist } = req.body;
   const next = {
     title: title ?? existing[0].title,
     label: label ?? existing[0].label,
@@ -453,13 +480,17 @@ app.put("/api/kanban/:id", async (req, res) => {
     dueDate: dueDate ?? existing[0].dueDate,
     description: description ?? existing[0].description,
     amount: typeof amount === "number" ? amount : existing[0].amount,
+    checklist: checklist !== undefined ? JSON.stringify(checklist) : existing[0].checklist,
   };
   await run(
-    "UPDATE kanban_cards SET title = ?, label = ?, status = ?, dueDate = ?, description = ?, amount = ? WHERE id = ?",
-    [next.title, next.label, next.status, next.dueDate, next.description, next.amount, id]
+    "UPDATE kanban_cards SET title = ?, label = ?, status = ?, dueDate = ?, description = ?, amount = ?, checklist = ? WHERE id = ?",
+    [next.title, next.label, next.status, next.dueDate, next.description, next.amount, next.checklist, id]
   );
   const [card] = await all("SELECT * FROM kanban_cards WHERE id = ?", [id]);
-  res.json(card);
+  res.json({
+    ...card,
+    checklist: card.checklist ? JSON.parse(card.checklist) : []
+  });
 });
 
 app.delete("/api/kanban/:id", async (req, res) => {
@@ -682,6 +713,59 @@ app.post("/api/week-plan", async (req, res) => {
   }
   
   res.status(201).json(body);
+});
+
+// Authentication endpoints
+app.post("/api/auth/signup", async (req, res) => {
+  const { username, password, email } = req.body;
+  if (!username || !password) {
+    return res.status(400).json({ error: "Username and password required" });
+  }
+  
+  try {
+    // Check if username exists
+    const existing = await all("SELECT * FROM users WHERE username = ?", [username]);
+    if (existing.length > 0) {
+      return res.status(400).json({ error: "Username already exists" });
+    }
+    
+    // In production, hash the password with bcrypt!
+    // For now, simple storage (NOT SECURE - use bcrypt in production)
+    const result = await run(
+      "INSERT INTO users (username, password, email) VALUES (?, ?, ?)",
+      [username, password, email || null]
+    );
+    
+    const [user] = await all("SELECT id, username, email FROM users WHERE id = ?", [result.lastID]);
+    res.status(201).json({ user, message: "Account created successfully" });
+  } catch (err) {
+    console.error("Signup error:", err);
+    res.status(500).json({ error: "Failed to create account" });
+  }
+});
+
+app.post("/api/auth/login", async (req, res) => {
+  const { username, password } = req.body;
+  if (!username || !password) {
+    return res.status(400).json({ error: "Username and password required" });
+  }
+  
+  try {
+    const [user] = await all("SELECT * FROM users WHERE username = ?", [username]);
+    
+    if (!user || user.password !== password) {
+      return res.status(401).json({ error: "Invalid username or password" });
+    }
+    
+    // Return user without password
+    res.json({ 
+      user: { id: user.id, username: user.username, email: user.email },
+      message: "Login successful"
+    });
+  } catch (err) {
+    console.error("Login error:", err);
+    res.status(500).json({ error: "Failed to login" });
+  }
 });
 
 // Serve React app for all non-API routes

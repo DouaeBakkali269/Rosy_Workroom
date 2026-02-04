@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Navbar from './components/Navbar'
 import HomePage from './pages/HomePage'
 import DashboardPage from './pages/DashboardPage'
@@ -9,10 +9,45 @@ import NotesPage from './pages/NotesPage'
 import WishlistPage from './pages/WishlistPage'
 import VisionPage from './pages/VisionPage'
 import WeekPlannerPage from './pages/WeekPlannerPage'
+import LoginPage from './pages/LoginPage'
 import './styles/App.css'
 
 function App() {
   const [activePage, setActivePage] = useState('home')
+  const [user, setUser] = useState(null)
+
+  useEffect(() => {
+    // Check if user is logged in
+    const storedUser = localStorage.getItem('user')
+    if (storedUser) {
+      setUser(JSON.parse(storedUser))
+    }
+  }, [])
+
+  function handleLogin(userData) {
+    setUser(userData)
+    setActivePage('home')
+  }
+
+  function handleLogout() {
+    localStorage.removeItem('user')
+    setUser(null)
+    setActivePage('home')
+  }
+
+  // If not logged in, show login page
+  if (!user) {
+    return (
+      <div className="page">
+        <main className="content">
+          <LoginPage onLogin={handleLogin} />
+        </main>
+        <div className="floating-shapes">
+          <span></span><span></span><span></span><span></span>
+        </div>
+      </div>
+    )
+  }
 
   const renderPage = () => {
     switch (activePage) {
@@ -31,7 +66,12 @@ function App() {
 
   return (
     <div className="page">
-      <Navbar activePage={activePage} onNavigate={setActivePage} />
+      <Navbar 
+        activePage={activePage} 
+        onNavigate={setActivePage}
+        user={user}
+        onLogout={handleLogout}
+      />
       <main className="content">
         {renderPage()}
       </main>

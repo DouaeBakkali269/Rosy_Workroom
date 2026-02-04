@@ -1,4 +1,4 @@
-export default function Navbar({ activePage, onNavigate }) {
+export default function Navbar({ activePage, onNavigate, user, onLogout }) {
   const navItems = [
     { id: 'home', label: 'Home', mobile: 'H' },
     { id: 'dashboard', label: 'Dashboard', mobile: 'Dash' },
@@ -30,6 +30,20 @@ export default function Navbar({ activePage, onNavigate }) {
         ))}
       </div>
 
+      {user && (
+        <div className="navbar-footer">
+          <span className="pill" style={{ marginRight: '10px' }}>
+            👤 {user.username}
+          </span>
+          <button 
+            className="btn ghost" 
+            onClick={onLogout}
+            style={{ padding: '4px 12px', fontSize: '13px' }}
+          >
+            Logout
+          </button>
+        </div>
+      )}
     </nav>
   )
 }

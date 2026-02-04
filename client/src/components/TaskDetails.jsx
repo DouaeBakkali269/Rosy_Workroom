@@ -8,7 +8,7 @@ export default function TaskDetails({ card, onClose, onUpdate }) {
   const [description, setDescription] = useState(card.description || '')
   const [label, setLabel] = useState(card.label || '')
   const [dueDate, setDueDate] = useState(card.dueDate || '')
-  const [checklist, setChecklist] = useState([])
+  const [checklist, setChecklist] = useState(card.checklist || [])
   const [checklistInput, setChecklistInput] = useState('')
   const [isSaving, setIsSaving] = useState(false)
 
@@ -21,7 +21,8 @@ export default function TaskDetails({ card, onClose, onUpdate }) {
         title,
         description,
         label,
-        dueDate
+        dueDate,
+        checklist
       })
       onUpdate()
     } catch (err) {
@@ -41,19 +42,28 @@ export default function TaskDetails({ card, onClose, onUpdate }) {
 
   function handleAddChecklistItem() {
     if (checklistInput.trim()) {
-      setChecklist([...checklist, { id: Date.now(), text: checklistInput, completed: false }])
+      const updatedChecklist = [...checklist, { id: Date.now(), text: checklistInput, completed: false }]
+      setChecklist(updatedChecklist)
       setChecklistInput('')
+      // Auto-save after adding item
+      updateKanbanCard(card.id, { checklist: updatedChecklist })
     }
   }
 
   function toggleChecklistItem(id) {
-    setChecklist(checklist.map(item => 
+    const updatedChecklist = checklist.map(item => 
       item.id === id ? { ...item, completed: !item.completed } : item
-    ))
+    )
+    setChecklist(updatedChecklist)
+    // Auto-save after toggling
+    updateKanbanCard(card.id, { checklist: updatedChecklist })
   }
 
   function removeChecklistItem(id) {
-    setChecklist(checklist.filter(item => item.id !== id))
+    const updatedChecklist = checklist.filter(item => item.id !== id)
+    setChecklist(updatedChecklist)
+    // Auto-save after removing
+    updateKanbanCard(card.id, { checklist: updatedChecklist })
   }
 
   const completedCount = checklist.filter(item => item.completed).length
