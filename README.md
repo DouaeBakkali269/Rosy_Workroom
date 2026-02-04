@@ -1,6 +1,10 @@
 # Strawberry Bloom Studio
 
-A cute and girly productivity app built with React and Node.js
+A cute and girly productivity app built with React and Node.js, deployed on Azure with automated CI/CD.
+
+**🌐 Live App:** https://rosy-studio-eehmehbqaph2dmew.francecentral-01.azurewebsites.net/
+
+**📚 Want to understand deployment?** → Read [DEPLOYMENT_ARCHITECTURE.md](DEPLOYMENT_ARCHITECTURE.md)
 
 ## Project Structure
 
@@ -71,7 +75,39 @@ The app will run on `http://localhost:5173`
 
 ## Tech Stack
 
-- **Frontend**: React 18, Vite
+- **Frontend**: React 18, Vite, "Architects Daughter" font
+- **Backend**: Node.js, Express.js
+- **Database**: SQLite3
+- **Styling**: Custom CSS with pink theme, glassmorphism, responsive design
+- **Deployment**: GitHub Actions → Azure App Service
+- **Version Control**: Git + GitHub
+
+## Deployment
+
+This app uses automated CI/CD:
+1. Push code to GitHub main branch
+2. GitHub Actions automatically builds frontend & backend
+3. Azure deploys to production
+4. **Zero manual steps!**
+
+For detailed deployment architecture, see [DEPLOYMENT_ARCHITECTURE.md](DEPLOYMENT_ARCHITECTURE.md)
+
+## Adding Features
+
+**Quick start for new features:**
+
+```bash
+# 1. Create new component or API endpoint
+# 2. Test locally
+git add .
+git commit -m "Your feature"
+git push origin main
+# → GitHub Actions builds & deploys automatically!
+```
+
+See [DEPLOYMENT_ARCHITECTURE.md](DEPLOYMENT_ARCHITECTURE.md) for step-by-step examples.
+
+## Tech Stack Details
 - **Backend**: Node.js, Express
 - **Database**: SQLite3
 - **Styling**: Custom CSS with glassmorphism effects
