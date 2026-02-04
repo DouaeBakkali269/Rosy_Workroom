@@ -3,7 +3,7 @@ import useLockBodyScroll from '../hooks/useLockBodyScroll'
 import ModalPortal from './ModalPortal'
 import { updateKanbanCard, deleteKanbanCard } from '../services/api'
 
-export default function TaskDetails({ card, onClose, onUpdate }) {
+export default function TaskDetails({ card, onClose, onUpdate, onRefresh }) {
   const [title, setTitle] = useState(card.title)
   const [description, setDescription] = useState(card.description || '')
   const [label, setLabel] = useState(card.label || '')
@@ -40,30 +40,49 @@ export default function TaskDetails({ card, onClose, onUpdate }) {
     }
   }
 
-  function handleAddChecklistItem() {
+  async function handleAddChecklistItem() {
     if (checklistInput.trim()) {
       const updatedChecklist = [...checklist, { id: Date.now(), text: checklistInput, completed: false }]
       setChecklist(updatedChecklist)
       setChecklistInput('')
       // Auto-save after adding item
-      updateKanbanCard(card.id, { checklist: updatedChecklist })
+      try {
+        await updateKanbanCard(card.id, { checklist: updatedChecklist })
+        console.log('Checklist item added successfully')
+        if (onRefresh) onRefresh() // Refresh without closing modal
+      } catch (err) {
+        console.error('Failed to save checklist item:', err)
+        alert('Failed to save checklist item. Please try again.')
+      }
     }
   }
 
-  function toggleChecklistItem(id) {
+  async function toggleChecklistItem(id) {
     const updatedChecklist = checklist.map(item => 
       item.id === id ? { ...item, completed: !item.completed } : item
     )
     setChecklist(updatedChecklist)
     // Auto-save after toggling
-    updateKanbanCard(card.id, { checklist: updatedChecklist })
+    try {
+      await updateKanbanCard(card.id, { checklist: updatedChecklist })
+      console.log('Checklist item toggled successfully')
+      if (onRefresh) onRefresh() // Refresh without closing modal
+    } catch (err) {
+      console.error('Failed to toggle checklist item:', err)
+    }
   }
 
-  function removeChecklistItem(id) {
+  async function removeChecklistItem(id) {
     const updatedChecklist = checklist.filter(item => item.id !== id)
     setChecklist(updatedChecklist)
     // Auto-save after removing
-    updateKanbanCard(card.id, { checklist: updatedChecklist })
+    try {
+      await updateKanbanCard(card.id, { checklist: updatedChecklist })
+      console.log('Checklist item removed successfully')
+      if (onRefresh) onRefresh() // Refresh without closing modal
+    } catch (err) {
+      console.error('Failed to remove checklist item:', err)
+    }
   }
 
   const completedCount = checklist.filter(item => item.completed).length

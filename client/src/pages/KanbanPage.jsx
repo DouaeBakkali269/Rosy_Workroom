@@ -165,6 +165,13 @@ export default function KanbanPage() {
             loadCards()
             setSelectedCard(null)
           }}
+          onRefresh={async () => {
+            await loadCards()
+            // Update selectedCard with fresh data
+            const updatedCards = await getKanbanCards(0)
+            const refreshedCard = updatedCards.find(c => c.id === selectedCard.id)
+            if (refreshedCard) setSelectedCard(refreshedCard)
+          }}
         />
       )}
       <div className="kanban">

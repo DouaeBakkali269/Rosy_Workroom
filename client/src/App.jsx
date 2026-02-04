@@ -35,19 +35,19 @@ function App() {
     setActivePage('home')
   }
 
-  // If not logged in, show login page
-  if (!user) {
-    return (
-      <div className="page">
-        <main className="content">
-          <LoginPage onLogin={handleLogin} />
-        </main>
-        <div className="floating-shapes">
-          <span></span><span></span><span></span><span></span>
-        </div>
-      </div>
-    )
-  }
+  // Login is optional - comment out to disable mandatory login
+  // if (!user) {
+  //   return (
+  //     <div className="page">
+  //       <main className="content">
+  //         <LoginPage onLogin={handleLogin} />
+  //       </main>
+  //       <div className="floating-shapes">
+  //         <span></span><span></span><span></span><span></span>
+  //       </div>
+  //     </div>
+  //   )
+  // }
 
   const renderPage = () => {
     switch (activePage) {
