@@ -10,6 +10,8 @@ export default function TaskDetails({ card, onClose, onUpdate, onRefresh }) {
   const [dueDate, setDueDate] = useState(card.dueDate || '')
   const [checklist, setChecklist] = useState(card.checklist || [])
   const [checklistInput, setChecklistInput] = useState('')
+  const [editingChecklistId, setEditingChecklistId] = useState(null)
+  const [editingChecklistText, setEditingChecklistText] = useState('')
   const [isSaving, setIsSaving] = useState(false)
 
   useLockBodyScroll(true)
@@ -85,6 +87,36 @@ export default function TaskDetails({ card, onClose, onUpdate, onRefresh }) {
     }
   }
 
+  function startEditChecklistItem(item) {
+    setEditingChecklistId(item.id)
+    setEditingChecklistText(item.text)
+  }
+
+  async function saveEditChecklistItem() {
+    if (!editingChecklistId) return
+    const trimmed = editingChecklistText.trim()
+    if (!trimmed) {
+      setEditingChecklistId(null)
+      setEditingChecklistText('')
+      return
+    }
+
+    const updatedChecklist = checklist.map(item =>
+      item.id === editingChecklistId ? { ...item, text: trimmed } : item
+    )
+
+    setChecklist(updatedChecklist)
+    setEditingChecklistId(null)
+    setEditingChecklistText('')
+
+    try {
+      await updateKanbanCard(card.id, { checklist: updatedChecklist })
+      if (onRefresh) onRefresh()
+    } catch (err) {
+      console.error('Failed to update checklist item:', err)
+    }
+  }
+
   const completedCount = checklist.filter(item => item.completed).length
   const checklistProgress = checklist.length > 0 ? Math.round((completedCount / checklist.length) * 100) : 0
 
@@ -138,9 +170,31 @@ export default function TaskDetails({ card, onClose, onUpdate, onRefresh }) {
                       onChange={() => toggleChecklistItem(item.id)}
                       className="checklist-checkbox"
                     />
-                    <span className={`checklist-text ${item.completed ? 'completed' : ''}`}>
-                      {item.text}
-                    </span>
+                    {editingChecklistId === item.id ? (
+                      <input
+                        className="checklist-input"
+                        type="text"
+                        value={editingChecklistText}
+                        onChange={(e) => setEditingChecklistText(e.target.value)}
+                        onBlur={saveEditChecklistItem}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') saveEditChecklistItem()
+                          if (e.key === 'Escape') {
+                            setEditingChecklistId(null)
+                            setEditingChecklistText('')
+                          }
+                        }}
+                        autoFocus
+                      />
+                    ) : (
+                      <span
+                        className={`checklist-text ${item.completed ? 'completed' : ''}`}
+                        onClick={() => startEditChecklistItem(item)}
+                        title="Click to edit"
+                      >
+                        {item.text}
+                      </span>
+                    )}
                     <button
                       className="checklist-delete"
                       onClick={() => removeChecklistItem(item.id)}
