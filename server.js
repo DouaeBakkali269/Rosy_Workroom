@@ -3,9 +3,24 @@ const cors = require("cors");
 const sqlite3 = require("sqlite3").verbose();
 const path = require("path");
 
+console.log("🚀 Starting Rosy Workroom Server...");
+console.log("📂 Current directory:", __dirname);
+console.log("🔧 PORT:", process.env.PORT || 3000);
+
 const app = express();
 const PORT = process.env.PORT || 3000;
-const db = new sqlite3.Database("rosy.db");
+
+// Use /home for database in Azure (persistent storage)
+const dbPath = process.env.HOME ? path.join(process.env.HOME, 'rosy.db') : 'rosy.db';
+console.log("💾 Database path:", dbPath);
+
+const db = new sqlite3.Database(dbPath, (err) => {
+  if (err) {
+    console.error("❌ Failed to open database:", err);
+  } else {
+    console.log("✅ Database connection established");
+  }
+});
 
 app.use(cors());
 app.use(express.json());
@@ -28,11 +43,13 @@ function all(sql, params = []) {
       if (err) reject(err);
       else resolve(rows);
     });
-  });
 }
 
 async function init() {
-  await run(
+  console.log("🔄 Starting database initialization...");
+  
+  try {
+    await run(
     `CREATE TABLE IF NOT EXISTS tasks (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       title TEXT NOT NULL,
@@ -339,6 +356,14 @@ async function init() {
         [item.item, item.status, item.purchased_date]
       );
     }
+  }
+  
+  console.log("✅ Database initialization completed successfully");
+  
+  } catch (error) {
+    console.error("❌ Error during database initialization:", error);
+    console.error("Stack trace:", error.stack);
+    throw error; // Re-throw to be caught by init().catch()
   }
 }
 
