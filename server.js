@@ -966,9 +966,10 @@ app.get('*', (req, res) => {
 
 init()
   .then(() => {
-    app.listen(PORT, () => {
+    app.listen(PORT, '0.0.0.0', () => {
       console.log(`✅ Rosy Workroom API running on port ${PORT}`);
       console.log(`📍 Environment: ${process.env.NODE_ENV || 'development'}`);
+      console.log(`🌐 Listening on 0.0.0.0:${PORT}`);
     });
   })
   .catch((err) => {
@@ -977,10 +978,22 @@ init()
     
     // Start server anyway on port to prevent 503
     // Let frontend handle errors gracefully
-    app.listen(PORT, () => {
+    app.listen(PORT, '0.0.0.0', () => {
       console.log(`⚠️  Server started on port ${PORT} with database errors`);
       console.log("Some features may not work correctly");
     });
   });
+
+// Handle uncaught exceptions
+process.on('uncaughtException', (err) => {
+  console.error('❌ UNCAUGHT EXCEPTION:', err);
+  console.error('Stack:', err.stack);
+});
+
+// Handle unhandled promise rejections
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('❌ UNHANDLED REJECTION at:', promise);
+  console.error('Reason:', reason);
+});
 
 
