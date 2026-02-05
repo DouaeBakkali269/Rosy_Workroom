@@ -70,7 +70,7 @@ async function init() {
     `CREATE TABLE IF NOT EXISTS projects (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,
-      tag TEXT,
+      tags TEXT,
       dueDate TEXT,
       description TEXT,
       taskCount INTEGER DEFAULT 0
@@ -118,7 +118,7 @@ async function init() {
       year INTEGER NOT NULL,
       month INTEGER NOT NULL,
       budget REAL NOT NULL,
-      UNIQUE(year, month)
+      UNIQUE(year, month, user_id)
     )`
   );
 
@@ -146,10 +146,12 @@ async function init() {
   await run(
     `CREATE TABLE IF NOT EXISTS week_plans (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      week_key TEXT UNIQUE NOT NULL,
+      week_key TEXT NOT NULL,
       plan_data TEXT NOT NULL,
+      user_id INTEGER,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(week_key, user_id)
     )`
   );
 
@@ -230,6 +232,23 @@ async function init() {
     await run("UPDATE notes SET updated_at = created_at WHERE updated_at IS NULL");
   }
 
+  // Migrate projects table to add tags column and copy from tag if needed
+  try {
+    const projectColumns = await all("PRAGMA table_info(projects)");
+    const projectExisting = new Set(projectColumns.map((col) => col.name));
+
+    if (!projectExisting.has("tags")) {
+      await run("ALTER TABLE projects ADD COLUMN tags TEXT");
+    }
+
+    if (projectExisting.has("tag")) {
+      // Copy single tag into tags JSON array if tags is empty
+      await run("UPDATE projects SET tags = json_array(tag) WHERE tag IS NOT NULL AND (tags IS NULL OR tags = '')");
+    }
+  } catch (err) {
+    console.error("⚠️  Failed to migrate projects tags:", err.message);
+  }
+
   // Migrate kanban_cards to add checklist column if missing
   try {
     const kanbanColumnsCheck = await all("PRAGMA table_info(kanban_cards)");
@@ -276,6 +295,62 @@ async function init() {
     }
   }
   console.log("✅ User ID migration completed");
+
+  // Fix monthly_budgets UNIQUE constraint to include user_id
+  console.log("🔄 Fixing monthly_budgets UNIQUE constraint...");
+  try {
+    // Check if the constraint needs fixing by examining the table
+    const budgetColumns = await all("PRAGMA table_info(monthly_budgets)");
+    const hasUserId = budgetColumns.some(col => col.name === 'user_id');
+    
+    if (hasUserId) {
+      // Recreate table with correct constraint
+      await run("DROP TABLE IF EXISTS monthly_budgets_backup");
+      await run("CREATE TABLE monthly_budgets_backup AS SELECT * FROM monthly_budgets");
+      await run("DROP TABLE monthly_budgets");
+      await run(`CREATE TABLE monthly_budgets (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        year INTEGER NOT NULL,
+        month INTEGER NOT NULL,
+        budget REAL NOT NULL,
+        user_id INTEGER,
+        UNIQUE(year, month, user_id)
+      )`);
+      await run("INSERT INTO monthly_budgets SELECT * FROM monthly_budgets_backup");
+      await run("DROP TABLE monthly_budgets_backup");
+      console.log("✅ Fixed monthly_budgets UNIQUE constraint");
+    }
+  } catch (err) {
+    console.error("⚠️  Failed to fix monthly_budgets constraint:", err.message);
+  }
+
+  // Fix week_plans UNIQUE constraint to include user_id
+  console.log("🔄 Fixing week_plans UNIQUE constraint...");
+  try {
+    const weekColumns = await all("PRAGMA table_info(week_plans)");
+    const hasUserId = weekColumns.some(col => col.name === 'user_id');
+    
+    if (hasUserId) {
+      // Recreate table with correct constraint
+      await run("DROP TABLE IF EXISTS week_plans_backup");
+      await run("CREATE TABLE week_plans_backup AS SELECT * FROM week_plans");
+      await run("DROP TABLE week_plans");
+      await run(`CREATE TABLE week_plans (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        week_key TEXT NOT NULL,
+        plan_data TEXT NOT NULL,
+        user_id INTEGER,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(week_key, user_id)
+      )`);
+      await run("INSERT INTO week_plans SELECT * FROM week_plans_backup");
+      await run("DROP TABLE week_plans_backup");
+      console.log("✅ Fixed week_plans UNIQUE constraint");
+    }
+  } catch (err) {
+    console.error("⚠️  Failed to fix week_plans constraint:", err.message);
+  }
 
   // Seed default notes if table is empty
   const existingNotes = await all("SELECT COUNT(*) as count FROM notes");
@@ -440,18 +515,28 @@ app.get("/api/projects", async (req, res) => {
      ORDER BY p.id DESC`,
     [req.userId]
   );
-  res.json(rows);
+  const parsed = rows.map((p) => ({
+    ...p,
+    tags: p.tags ? JSON.parse(p.tags) : []
+  }));
+  res.json(parsed);
 });
 
 app.post("/api/projects", async (req, res) => {
   if (!req.userId) return res.status(401).send("Unauthorized");
-  const { name, tag, dueDate, description } = req.body;
+  const { name, tags, dueDate, description } = req.body;
   if (!name) return res.status(400).send("Name required");
+  const tagsJson = Array.isArray(tags)
+    ? JSON.stringify(tags)
+    : (tags ? JSON.stringify([tags]) : JSON.stringify([]));
   const result = await run(
-    "INSERT INTO projects (name, tag, dueDate, description, user_id) VALUES (?, ?, ?, ?, ?)",
-    [name, tag || null, dueDate || null, description || null, req.userId]
+    "INSERT INTO projects (name, tags, dueDate, description, user_id) VALUES (?, ?, ?, ?, ?)",
+    [name, tagsJson, dueDate || null, description || null, req.userId]
   );
   const [project] = await all("SELECT * FROM projects WHERE id = ?", [result.lastID]);
+  if (project && project.tags) {
+    project.tags = JSON.parse(project.tags);
+  }
   res.status(201).json(project);
 });
 
@@ -460,19 +545,25 @@ app.put("/api/projects/:id", async (req, res) => {
   const { id } = req.params;
   const existing = await all("SELECT * FROM projects WHERE id = ? AND user_id = ?", [id, req.userId]);
   if (!existing.length) return res.status(404).send("Not found");
-  const { name, tag, dueDate, description, taskCount } = req.body;
+  const { name, tags, dueDate, description, taskCount } = req.body;
+  const tagsJson = Array.isArray(tags)
+    ? JSON.stringify(tags)
+    : (tags ? JSON.stringify([tags]) : existing[0].tags);
   const next = {
     name: name ?? existing[0].name,
-    tag: tag ?? existing[0].tag,
+    tags: tagsJson ?? existing[0].tags,
     dueDate: dueDate ?? existing[0].dueDate,
     description: description ?? existing[0].description,
     taskCount: typeof taskCount === "number" ? taskCount : existing[0].taskCount,
   };
   await run(
-    "UPDATE projects SET name = ?, tag = ?, dueDate = ?, description = ?, taskCount = ? WHERE id = ? AND user_id = ?",
-    [next.name, next.tag, next.dueDate, next.description, next.taskCount, id, req.userId]
+    "UPDATE projects SET name = ?, tags = ?, dueDate = ?, description = ?, taskCount = ? WHERE id = ? AND user_id = ?",
+    [next.name, next.tags, next.dueDate, next.description, next.taskCount, id, req.userId]
   );
   const [project] = await all("SELECT * FROM projects WHERE id = ?", [id]);
+  if (project && project.tags) {
+    project.tags = JSON.parse(project.tags);
+  }
   res.json(project);
 });
 
@@ -715,6 +806,15 @@ app.delete("/api/wishlist/:id", async (req, res) => {
 });
 
 // Monthly Budgets
+app.get("/api/monthly-budgets", async (req, res) => {
+  if (!req.userId) return res.status(401).send("Unauthorized");
+  const rows = await all(
+    "SELECT * FROM monthly_budgets WHERE user_id = ?",
+    [req.userId]
+  );
+  res.json(rows);
+});
+
 app.get("/api/monthly-budgets/:year/:month", async (req, res) => {
   if (!req.userId) return res.status(401).send("Unauthorized");
   const { year, month } = req.params;
@@ -882,3 +982,5 @@ init()
       console.log("Some features may not work correctly");
     });
   });
+
+

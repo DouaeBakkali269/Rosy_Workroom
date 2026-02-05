@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom'
 import Navbar from './components/Navbar'
-import HomePage from './pages/HomePage'
+import LandingPage from './pages/LandingPage'
 import DashboardPage from './pages/DashboardPage'
 import ProjectsPage from './pages/ProjectsPage'
 import KanbanPage from './pages/KanbanPage'
@@ -12,6 +12,25 @@ import VisionPage from './pages/VisionPage'
 import WeekPlannerPage from './pages/WeekPlannerPage'
 import LoginPage from './pages/LoginPage'
 import './styles/App.css'
+
+function RequireAuth({ user, children }) {
+  if (!user) return <Navigate to="/" replace />
+  return children
+}
+
+function AppLayout({ user, onLogout }) {
+  return (
+    <div className="page">
+      <Navbar user={user} onLogout={onLogout} />
+      <main className="content">
+        <Outlet />
+      </main>
+      <div className="floating-shapes">
+        <span></span><span></span><span></span><span></span>
+      </div>
+    </div>
+  )
+}
 
 function App() {
   const [user, setUser] = useState(null)
@@ -29,55 +48,62 @@ function App() {
     console.log('✅ User logged in:', userData)
     setUser(userData)
     localStorage.setItem('user', JSON.stringify(userData))
-    setActivePage('home')
   }
 
   function handleLogout() {
     console.log('👋 User logged out')
     localStorage.removeItem('user')
-    setUser(null
+    setUser(null)
+  }
 
   console.log('🎯 Current user state:', user)
 
-  // Require login to access the app
-  if (!user) {
-    console.log('🚪 No user - showing LoginPage')
-    return (
-      <div className="page">
-        <main className="content">
-          <LoginPage onLogin={handleLogin} />
-        </main>
-        <div className="floating-shapes">
-          <span></span><span></span><span></span><span></span>
-        </div>
-      </div>
-    )
-  }
-
-  const renderPage = () => {
-    switch (activePage) {
   return (
     <BrowserRouter>
-      <div className="page">
-        <Navbar user={user} onLogout={handleLogout} />
-        <main className="content">
-          <Routes>
-            <Route path="/" element={<HomePage />} />
-            <Route path="/dashboard" element={<DashboardPage />} />
-            <Route path="/week-planner" element={<WeekPlannerPage />} />
-            <Route path="/projects" element={<ProjectsPage />} />
-            <Route path="/kanban" element={<KanbanPage />} />
-            <Route path="/money" element={<MoneyPage />} />
-            <Route path="/notes" element={<NotesPage />} />
-            <Route path="/wishlist" element={<WishlistPage />} />
-            <Route path="/vision" element={<VisionPage />} />
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
-        </main>
-        <div className="floating-shapes">
-          <span></span><span></span><span></span><span></span>
-        </div>
-      </div>
-    </BrowserRouter
+      <Routes>
+        <Route path="/" element={<LandingPage />} />
+        <Route path="/login" element={<LoginPage onLogin={handleLogin} initialMode="login" />} />
+        <Route path="/signup" element={<LoginPage onLogin={handleLogin} initialMode="signup" />} />
+
+        <Route element={<AppLayout user={user} onLogout={handleLogout} />}>
+          <Route
+            path="/dashboard"
+            element={<RequireAuth user={user}><DashboardPage /></RequireAuth>}
+          />
+          <Route
+            path="/week-planner"
+            element={<RequireAuth user={user}><WeekPlannerPage /></RequireAuth>}
+          />
+          <Route
+            path="/projects"
+            element={<RequireAuth user={user}><ProjectsPage /></RequireAuth>}
+          />
+          <Route
+            path="/kanban"
+            element={<RequireAuth user={user}><KanbanPage /></RequireAuth>}
+          />
+          <Route
+            path="/money"
+            element={<RequireAuth user={user}><MoneyPage /></RequireAuth>}
+          />
+          <Route
+            path="/notes"
+            element={<RequireAuth user={user}><NotesPage /></RequireAuth>}
+          />
+          <Route
+            path="/wishlist"
+            element={<RequireAuth user={user}><WishlistPage /></RequireAuth>}
+          />
+          <Route
+            path="/vision"
+            element={<RequireAuth user={user}><VisionPage /></RequireAuth>}
+          />
+        </Route>
+
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </BrowserRouter>
+  )
+}
 
 export default App

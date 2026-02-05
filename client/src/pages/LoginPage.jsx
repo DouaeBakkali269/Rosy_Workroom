@@ -1,12 +1,18 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 
-export default function LoginPage({ onLogin }) {
+export default function LoginPage({ onLogin, initialMode = 'login' }) {
+  const navigate = useNavigate()
   const [isSignup, setIsSignup] = useState(false)
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [email, setEmail] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    setIsSignup(initialMode === 'signup')
+  }, [initialMode])
 
   async function handleSubmit(e) {
     e.preventDefault()
@@ -37,10 +43,12 @@ export default function LoginPage({ onLogin }) {
         setPassword('')
         setEmail('')
         setError('Account created! Please log in.')
+        navigate('/login')
       } else {
         // After login, store user and proceed
         localStorage.setItem('user', JSON.stringify(data.user))
         onLogin(data.user)
+        navigate('/dashboard')
       }
     } catch (err) {
       setError(err.message)
@@ -50,139 +58,74 @@ export default function LoginPage({ onLogin }) {
   }
 
   return (
-    <div style={{
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      minHeight: '100vh',
-      padding: '20px'
-    }}>
-      <div style={{
-        background: 'rgba(255, 255, 255, 0.95)',
-        borderRadius: '16px',
-        padding: '40px',
-        maxWidth: '400px',
-        width: '100%',
-        boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)'
-      }}>
-        <h2 style={{
-          fontSize: '28px',
-          fontWeight: '600',
-          marginBottom: '30px',
-          textAlign: 'center',
-          color: '#333'
-        }}>
-          {isSignup ? '🌸 Create Account' : '🌸 Welcome Back'}
-        </h2>
-        
-        <form onSubmit={handleSubmit}>
-          <div style={{ marginBottom: '20px' }}>
-            <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: '500', color: '#555' }}>
-              Username
-            </label>
+    <div className="modal-overlay" style={{ position: 'fixed', inset: 0 }}>
+      <div className="modal" style={{ maxWidth: '420px', width: '100%' }}>
+        <div className="modal-header">
+          <h3 className="modal-title">
+            {isSignup ? '🌸 Create Account' : '🌸 Welcome Back'}
+          </h3>
+        </div>
+        <form className="modal-body" onSubmit={handleSubmit}>
+          <label className="field">
+            <span className="field-label">Username</span>
             <input
-              style={{
-                width: '100%',
-                padding: '12px',
-                borderRadius: '8px',
-                border: '2px solid #f0f0f0',
-                fontSize: '14px',
-                boxSizing: 'border-box'
-              }}
+              className="input"
               type="text"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               placeholder="Enter username"
               required
             />
-          </div>
+          </label>
 
-          <div style={{ marginBottom: '20px' }}>
-            <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: '500', color: '#555' }}>
-              Password
-            </label>
+          <label className="field">
+            <span className="field-label">Password</span>
             <input
-              style={{
-                width: '100%',
-                padding: '12px',
-                borderRadius: '8px',
-                border: '2px solid #f0f0f0',
-                fontSize: '14px',
-                boxSizing: 'border-box'
-              }}
+              className="input"
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="Enter password"
               required
             />
-          </div>
+          </label>
 
           {isSignup && (
-            <div style={{ marginBottom: '20px' }}>
-              <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: '500', color: '#555' }}>
-                Email (optional)
-              </label>
+            <label className="field">
+              <span className="field-label">Email (optional)</span>
               <input
-                style={{
-                  width: '100%',
-                  padding: '12px',
-                  borderRadius: '8px',
-                  border: '2px solid #f0f0f0',
-                  fontSize: '14px',
-                  boxSizing: 'border-box'
-                }}
+                className="input"
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="Enter email"
               />
-            </div>
+            </label>
           )}
 
           {error && (
-            <div style={{ 
-              color: error.includes('created') ? '#2e7d32' : '#d32f2f', 
-              padding: '12px', 
-              background: error.includes('created') ? '#e8f5e9' : '#ffebee', 
-              borderRadius: '8px',
-              marginBottom: '20px',
-              fontSize: '14px'
-            }}>
+            <div
+              style={{
+                color: error.includes('created') ? '#2e7d32' : '#d32f2f',
+                padding: '12px',
+                background: error.includes('created') ? '#e8f5e9' : '#ffebee',
+                borderRadius: '10px',
+                marginBottom: '16px',
+                fontSize: '14px',
+                border: '1px solid rgba(236, 151, 183, 0.35)'
+              }}
+            >
               {error}
             </div>
           )}
 
-          <button 
-            type="submit"
-            style={{
-              width: '100%',
-              padding: '14px',
-              background: '#ff69b4',
-              color: 'white',
-              border: 'none',
-              borderRadius: '8px',
-              fontSize: '16px',
-              fontWeight: '600',
-              cursor: loading ? 'not-allowed' : 'pointer',
-              opacity: loading ? 0.7 : 1
-            }}
-            disabled={loading}
-          >
-            {loading ? 'Please wait...' : (isSignup ? 'Sign Up' : 'Log In')}
-          </button>
-
-          <div style={{ textAlign: 'center', marginTop: '20px' }}>
+          <div className="modal-actions">
+            <button className="btn primary" type="submit" disabled={loading}>
+              {loading ? 'Please wait...' : (isSignup ? 'Sign Up' : 'Log In')}
+            </button>
             <button
+              className="btn ghost"
               type="button"
-              style={{
-                background: 'none',
-                border: 'none',
-                color: '#ff69b4',
-                fontSize: '14px',
-                cursor: 'pointer',
-                textDecoration: 'underline'
-              }}
               onClick={() => {
                 setIsSignup(!isSignup)
                 setError('')

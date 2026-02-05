@@ -1,18 +1,20 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { getTasks, createTask, updateTask, deleteTask, getNotes, getTransactions } from '../services/api'
+import { getTasks, createTask, updateTask, deleteTask, getNotes, getTransactions, getMonthlyBudgets } from '../services/api'
 
 export default function DashboardPage() {
   const navigate = useNavigate()
   const [tasks, setTasks] = useState([])
   const [notes, setNotes] = useState([])
   const [transactions, setTransactions] = useState([])
+  const [monthlyBudgets, setMonthlyBudgets] = useState([])
   const [newTask, setNewTask] = useState('')
 
   useEffect(() => {
     loadTasks()
     loadNotes()
     loadTransactions()
+    loadMonthlyBudgets()
   }, [])
 
   async function loadTasks() {
@@ -28,6 +30,11 @@ export default function DashboardPage() {
   async function loadTransactions() {
     const data = await getTransactions()
     setTransactions(data)
+  }
+
+  async function loadMonthlyBudgets() {
+    const data = await getMonthlyBudgets()
+    setMonthlyBudgets(data)
   }
 
   async function handleAddTask(e) {
@@ -54,6 +61,10 @@ export default function DashboardPage() {
   const getMonthlySpending = () => {
     const now = new Date()
     const months = []
+    const budgetMap = monthlyBudgets.reduce((acc, budget) => {
+      acc[`${budget.year}-${budget.month}`] = budget.budget
+      return acc
+    }, {})
     
     // Generate last 6 months
     for (let i = 5; i >= 0; i--) {
@@ -62,7 +73,8 @@ export default function DashboardPage() {
         year: date.getFullYear(),
         month: date.getMonth() + 1,
         name: date.toLocaleString('default', { month: 'short' }),
-        spending: 0
+        spending: 0,
+        budget: budgetMap[`${date.getFullYear()}-${date.getMonth() + 1}`] ?? null
       })
     }
     
@@ -76,6 +88,10 @@ export default function DashboardPage() {
       if (monthData) {
         monthData.spending += tx.amount
       }
+    })
+
+    months.forEach(month => {
+      month.saved = month.budget !== null ? Math.max(month.budget - month.spending, 0) : null
     })
     
     return months
@@ -136,6 +152,11 @@ export default function DashboardPage() {
                 ></div>
                 <div className="month-label">{month.name}</div>
                 <div className="month-amount">{month.spending > 0 ? month.spending.toFixed(0) : '0'} MAD</div>
+                {month.saved !== null && (
+                  <div className="month-amount" style={{ color: '#5b8c6a', fontSize: '10px' }}>
+                    Saved: {month.saved.toFixed(0)} MAD
+                  </div>
+                )}
               </div>
             ))}
           </div>

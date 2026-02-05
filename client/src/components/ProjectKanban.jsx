@@ -170,7 +170,7 @@ export default function ProjectKanban({ project, onBack }) {
           onRefresh={async () => {
             await loadCards()
             // Update selectedCard with fresh data
-            const updatedCards = await getKanbanCards(projectId)
+            const updatedCards = await getKanbanCards(project.id)
             const refreshedCard = updatedCards.find(c => c.id === selectedCard.id)
             if (refreshedCard) setSelectedCard(refreshedCard)
           }}

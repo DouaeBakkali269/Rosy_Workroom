@@ -61,11 +61,11 @@ body.modal-open {
 
 .navbar {
   padding: 12px 28px;
-  background: transparent;
+  background: rgba(255, 255, 255, 0.35);
   display: flex;
   align-items: center;
   gap: 20px;
-  border-bottom: 0;
+  border-bottom: 1px solid rgba(233, 157, 186, 0.2);
   border-radius: 2px;
   margin: 16px 20px 0;
   position: sticky;
@@ -203,6 +203,7 @@ body.modal-open {
   z-index: 1;
   flex: 1;
   margin-top: 0;
+  overflow-y: auto;
 }
 
 .content::before {
@@ -511,6 +512,7 @@ body.modal-open {
   justify-content: center;
   min-height: calc(100vh - 200px);
   padding: 10px 20px;
+  margin-top: 50px;
 }
 
 .home-hero-panel {
@@ -518,7 +520,7 @@ body.modal-open {
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
   border-radius: var(--radius-lg);
-  padding: -40px 24px 14px;
+  padding: -100px 24px 14px;
   text-align: center;
   border: 0;
   box-shadow: none;
@@ -557,12 +559,13 @@ body.modal-open {
 }
 
 .home-decoration {
-  width: 210px;
+  max-width: 100%;
   height: auto;
   display: block;
-  margin: 0 auto 18px;
   filter: drop-shadow(0 10px 18px rgba(213, 111, 147, 0.35));
   animation: floatySoft 4.5s ease-in-out infinite;
+  transform: translateX(-120px); /* move LEFT */
+
 }
 
 .home-title {
@@ -697,12 +700,8 @@ body.modal-open {
 }
 
 @keyframes floatySoft {
-  0%, 100% {
-    transform: translateY(0);
-  }
-  50% {
-    transform: translateY(-10px);
-  }
+  0%, 100% { transform: translate(-120px, 0px); }
+  50%      { transform: translate(-120px, -12px); }
 }
 
 @keyframes textGlow {
@@ -1102,7 +1101,7 @@ body.modal-open {
   -webkit-backdrop-filter: blur(20px);
   border-radius: 2px;
   padding: 24px;
-  border: 2px solid rgba(255, 255, 255, 0.5);
+  border: 3px solid rgba(233, 157, 186, 0.6);
   box-shadow: 0 10px 30px rgba(213, 111, 147, 0.25),
               0 2px 8px rgba(233, 157, 186, 0.3);
   display: grid;
@@ -2944,4 +2943,22 @@ body.modal-open {
   .day-section textarea {
     min-height: 80px;
   }
+}
+
+
+.project-tags {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.project-tags .tag {
+  background: rgba(233, 157, 186, 0.2);
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  border: 2px solid rgba(236, 151, 183, 0.45);
+  display: inline-block;
 }

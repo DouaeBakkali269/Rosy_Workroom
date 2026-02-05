@@ -61,6 +61,7 @@ export const updateNote = (id, data) => apiRequest(`notes/${id}`, { method: 'PUT
 export const deleteNote = (id) => apiRequest(`notes/${id}`, { method: 'DELETE' })
 
 // Monthly Budgets
+export const getMonthlyBudgets = () => apiRequest('monthly-budgets')
 export const getMonthlyBudget = (year, month) => apiRequest(`monthly-budgets/${year}/${month}`)
 export const setMonthlyBudget = (data) => apiRequest('monthly-budgets', { method: 'POST', body: JSON.stringify(data) })
 

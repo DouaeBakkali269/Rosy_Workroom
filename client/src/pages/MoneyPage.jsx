@@ -79,6 +79,7 @@ export default function MoneyPage() {
   // Calculate totals
   const totalSpent = transactions.reduce((sum, tx) => sum + tx.amount, 0)
   const remaining = monthlyBudget - totalSpent
+  const saved = Math.max(remaining, 0)
   const categoryTotals = transactions.reduce((acc, tx) => {
     acc[tx.category] = (acc[tx.category] || 0) + tx.amount
     return acc
@@ -188,9 +189,9 @@ export default function MoneyPage() {
               <div className="money-value">{totalSpent.toFixed(2)} MAD</div>
             </div>
             <div>
-              <div className="money-label">Remaining</div>
-              <div className="money-value" style={{ color: remaining >= 0 ? '#d56fb1' : '#e74c3c' }}>
-                {remaining.toFixed(2)} MAD
+              <div className="money-label">Saved</div>
+              <div className="money-value" style={{ color: saved > 0 ? '#5b8c6a' : '#e74c3c' }}>
+                {saved.toFixed(2)} MAD
               </div>
             </div>
             <div>

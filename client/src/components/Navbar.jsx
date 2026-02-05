@@ -1,8 +1,8 @@
-import { NavLink } from 'react-router-dom'
+import { NavLink, useNavigate } from 'react-router-dom'
 
 export default function Navbar({ user, onLogout }) {
+  const navigate = useNavigate()
   const navItems = [
-    { id: 'home', path: '/', label: 'Home', mobile: 'H' },
     { id: 'dashboard', path: '/dashboard', label: 'Dashboard', mobile: 'Dash' },
     { id: 'week-planner', path: '/week-planner', label: 'Week Planner', mobile: 'Week' },
     { id: 'projects', path: '/projects', label: 'Projects', mobile: 'Proj' },
@@ -24,6 +24,7 @@ export default function Navbar({ user, onLogout }) {
             key={item.id}
             to={item.path}
             className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
+            style={{ textDecoration: 'none' }}
             title={item.label}
           >
             <span className="nav-label-desktop">{item.label}</span>
@@ -35,11 +36,14 @@ export default function Navbar({ user, onLogout }) {
       {user && (
         <div className="navbar-footer">
           <span className="pill" style={{ marginRight: '10px' }}>
-            👤 {user.username}
+            👧🏻 {user.username}
           </span>
           <button 
             className="btn ghost" 
-            onClick={onLogout}
+            onClick={() => {
+              onLogout()
+              navigate('/')
+            }}
             style={{ padding: '4px 12px', fontSize: '13px' }}
           >
             Logout
