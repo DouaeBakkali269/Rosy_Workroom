@@ -189,6 +189,29 @@ export default function ProjectKanban({ project, onBack }) {
                 <div className="card-meta">
                   {card.dueDate && `Due ${card.dueDate}`}
                 </div>
+                <div className="kanban-mobile-actions" onClick={(e) => e.stopPropagation()}>
+                  <button
+                    className="kanban-move-btn"
+                    disabled={card.status === 'todo'}
+                    onClick={() => handleStatusChange(card.id, 'todo')}
+                  >
+                    To Do
+                  </button>
+                  <button
+                    className="kanban-move-btn"
+                    disabled={card.status === 'inprogress'}
+                    onClick={() => handleStatusChange(card.id, 'inprogress')}
+                  >
+                    In Progress
+                  </button>
+                  <button
+                    className="kanban-move-btn"
+                    disabled={card.status === 'done'}
+                    onClick={() => handleStatusChange(card.id, 'done')}
+                  >
+                    Done
+                  </button>
+                </div>
               </div>
             ))}
           </div>
@@ -205,6 +228,29 @@ export default function ProjectKanban({ project, onBack }) {
                 <div className="card-meta">
                   {card.dueDate && `Due ${card.dueDate}`}
                 </div>
+                <div className="kanban-mobile-actions" onClick={(e) => e.stopPropagation()}>
+                  <button
+                    className="kanban-move-btn"
+                    disabled={card.status === 'todo'}
+                    onClick={() => handleStatusChange(card.id, 'todo')}
+                  >
+                    To Do
+                  </button>
+                  <button
+                    className="kanban-move-btn"
+                    disabled={card.status === 'inprogress'}
+                    onClick={() => handleStatusChange(card.id, 'inprogress')}
+                  >
+                    In Progress
+                  </button>
+                  <button
+                    className="kanban-move-btn"
+                    disabled={card.status === 'done'}
+                    onClick={() => handleStatusChange(card.id, 'done')}
+                  >
+                    Done
+                  </button>
+                </div>
               </div>
             ))}
           </div>
@@ -220,6 +266,29 @@ export default function ProjectKanban({ project, onBack }) {
                 {card.description && <div className="card-desc">{card.description}</div>}
                 <div className="card-meta">
                   {card.dueDate && `Done ${card.dueDate}`}
+                </div>
+                <div className="kanban-mobile-actions" onClick={(e) => e.stopPropagation()}>
+                  <button
+                    className="kanban-move-btn"
+                    disabled={card.status === 'todo'}
+                    onClick={() => handleStatusChange(card.id, 'todo')}
+                  >
+                    To Do
+                  </button>
+                  <button
+                    className="kanban-move-btn"
+                    disabled={card.status === 'inprogress'}
+                    onClick={() => handleStatusChange(card.id, 'inprogress')}
+                  >
+                    In Progress
+                  </button>
+                  <button
+                    className="kanban-move-btn"
+                    disabled={card.status === 'done'}
+                    onClick={() => handleStatusChange(card.id, 'done')}
+                  >
+                    Done
+                  </button>
                 </div>
               </div>
             ))}

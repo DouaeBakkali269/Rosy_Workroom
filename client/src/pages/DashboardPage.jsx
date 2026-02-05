@@ -153,7 +153,7 @@ export default function DashboardPage() {
                 <div className="month-label">{month.name}</div>
                 <div className="month-amount">{month.spending > 0 ? month.spending.toFixed(0) : '0'} MAD</div>
                 {month.saved !== null && (
-                  <div className="month-amount" style={{ color: '#5b8c6a', fontSize: '10px' }}>
+                  <div className="month-amount month-saved">
                     Saved: {month.saved.toFixed(0)} MAD
                   </div>
                 )}
