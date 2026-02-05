@@ -118,6 +118,7 @@ async function init() {
       year INTEGER NOT NULL,
       month INTEGER NOT NULL,
       budget REAL NOT NULL,
+      user_id INTEGER,
       UNIQUE(year, month, user_id)
     )`
   );
