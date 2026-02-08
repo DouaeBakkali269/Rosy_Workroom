@@ -92,6 +92,17 @@ This app uses automated CI/CD:
 
 For detailed deployment architecture, see [DEPLOYMENT_ARCHITECTURE.md](DEPLOYMENT_ARCHITECTURE.md)
 
+## Data Persistence (Azure)
+
+The app stores SQLite data and uploads in a persistent data directory. If data resets after deploys, set an explicit data path in Azure App Service:
+
+- `DATA_DIR`: `D:\home` (Windows App Service) or `/home` (Linux App Service)
+- Optional override: `DATABASE_PATH` or `SQLITE_DB_PATH` (full file path to `rosy.db`)
+
+If you use a Linux **container** App Service, also enable persistent storage:
+
+- App Service Settings → **Configuration** → **Application settings** → `WEBSITES_ENABLE_APP_SERVICE_STORAGE=true`
+
 ## Adding Features
 
 **Quick start for new features:**
