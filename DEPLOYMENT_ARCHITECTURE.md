@@ -330,9 +330,11 @@ No special env vars needed - app runs on port 3000 by default.
 - Check: Does database exist (`rosy.db`)?
 
 ### **Data Lost After Redeploy?**
-- SQLite file (`rosy.db`) persists on Azure ✅
-- Data should NOT be lost
-- If lost, check Azure "Application settings" for file storage issues
+- SQLite file (`rosy.db`) should persist on Azure ✅
+- If data resets, make sure the app writes to persistent storage:
+  - Set `DATA_DIR` to `D:\home` (Windows App Service) or `/home` (Linux App Service)
+  - Or set `DATABASE_PATH` / `SQLITE_DB_PATH` to a full path
+- For Linux **container** App Service, ensure `WEBSITES_ENABLE_APP_SERVICE_STORAGE=true`
 
 ---
 

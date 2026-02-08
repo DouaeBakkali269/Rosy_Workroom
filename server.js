@@ -2,6 +2,8 @@ const express = require("express");
 const cors = require("cors");
 const sqlite3 = require("sqlite3").verbose();
 const path = require("path");
+const multer = require("multer");
+const fs = require("fs");
 
 console.log("🚀 Starting Rosy Workroom Server...");
 console.log("📂 Current directory:", __dirname);
@@ -10,9 +12,38 @@ console.log("🔧 PORT:", process.env.PORT || 3000);
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Use /home for database in Azure (persistent storage)
-const dbPath = process.env.HOME ? path.join(process.env.HOME, 'rosy.db') : 'rosy.db';
+function resolvePersistentBaseDir() {
+  const explicitBase = process.env.DATA_DIR || process.env.APP_DATA_DIR || null;
+  if (explicitBase) return explicitBase;
+
+  const homeEnv = process.env.HOME
+    || process.env.USERPROFILE
+    || (process.env.HOMEDRIVE && process.env.HOMEPATH
+      ? path.join(process.env.HOMEDRIVE, process.env.HOMEPATH)
+      : null);
+
+  if (homeEnv && /site[\\/]+wwwroot/i.test(homeEnv)) {
+    return path.resolve(homeEnv, "..", "..");
+  }
+
+  return homeEnv || null;
+}
+
+const persistentBaseDir = resolvePersistentBaseDir();
+const dataDir = persistentBaseDir
+  ? path.join(persistentBaseDir, "data")
+  : path.join(__dirname, "data");
+
+if (!fs.existsSync(dataDir)) {
+  fs.mkdirSync(dataDir, { recursive: true });
+}
+
+const dbPath = process.env.SQLITE_DB_PATH
+  || process.env.DATABASE_PATH
+  || path.join(dataDir, "rosy.db");
+
 console.log("💾 Database path:", dbPath);
+console.log("📦 Data directory:", dataDir);
 
 const db = new sqlite3.Database(dbPath, (err) => {
   if (err) {
@@ -25,6 +56,38 @@ const db = new sqlite3.Database(dbPath, (err) => {
 app.use(cors());
 app.use(express.json());
 
+// Setup uploads directory
+const uploadsDir = path.join(dataDir, "uploads");
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+}
+
+// Configure multer for file uploads
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, uploadsDir);
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
+    const ext = path.extname(file.originalname);
+    cb(null, "wishlist-" + uniqueSuffix + ext);
+  }
+});
+
+const upload = multer({
+  storage: storage,
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
+  fileFilter: (req, file, cb) => {
+    // Only allow image files
+    const allowedMimes = ["image/jpeg", "image/png", "image/gif", "image/webp"];
+    if (allowedMimes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error("Only image files are allowed"));
+    }
+  }
+});
+
 // Middleware to extract user_id from headers
 app.use((req, res, next) => {
   const userId = req.headers['x-user-id']
@@ -33,7 +96,10 @@ app.use((req, res, next) => {
 })
 
 // Serve static files from React build
-app.use(express.static(path.join(__dirname, 'client/dist')));
+app.use(express.static(path.join(__dirname, "client/dist")));
+
+// Serve uploads folder as static
+app.use("/uploads", express.static(uploadsDir));
 
 function run(sql, params = []) {
   return new Promise((resolve, reject) => {
@@ -140,6 +206,7 @@ async function init() {
       price TEXT,
       status TEXT DEFAULT 'wishlist',
       purchased_date TEXT,
+      image_path TEXT,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP
     )`
   );
@@ -276,6 +343,12 @@ async function init() {
   
   if (!wishlistExisting.has("purchased_date")) {
     await run("ALTER TABLE wishlist_items ADD COLUMN purchased_date TEXT");
+  }
+
+  if (!wishlistExisting.has("image_path")) {
+    console.log("Adding image_path column to wishlist_items...");
+    await run("ALTER TABLE wishlist_items ADD COLUMN image_path TEXT");
+    console.log("✅ Image_path column added to wishlist_items");
   }
 
   // Add user_id columns to all tables for multi-user support
@@ -784,19 +857,21 @@ app.put("/api/wishlist/:id", async (req, res) => {
   const existing = await all("SELECT * FROM wishlist_items WHERE id = ? AND user_id = ?", [id, req.userId]);
   if (!existing.length) return res.status(404).send("Not found");
   
-  const { status, purchased_date } = req.body;
+  const { status, purchased_date, item, price } = req.body;
   const next = {
+    item: item ?? existing[0].item,
+    price: price ?? existing[0].price,
     status: status ?? existing[0].status,
     purchased_date: purchased_date ?? existing[0].purchased_date
   };
   
   await run(
-    "UPDATE wishlist_items SET status = ?, purchased_date = ? WHERE id = ? AND user_id = ?",
-    [next.status, next.purchased_date, id, req.userId]
+    "UPDATE wishlist_items SET item = ?, price = ?, status = ?, purchased_date = ? WHERE id = ? AND user_id = ?",
+    [next.item, next.price, next.status, next.purchased_date, id, req.userId]
   );
   
-  const [item] = await all("SELECT * FROM wishlist_items WHERE id = ?", [id]);
-  res.json(item);
+  const [item_result] = await all("SELECT * FROM wishlist_items WHERE id = ?", [id]);
+  res.json(item_result);
 });
 
 app.delete("/api/wishlist/:id", async (req, res) => {
@@ -804,6 +879,84 @@ app.delete("/api/wishlist/:id", async (req, res) => {
   const { id } = req.params;
   await run("DELETE FROM wishlist_items WHERE id = ? AND user_id = ?", [id, req.userId]);
   res.status(204).send();
+});
+
+// Image upload endpoint for wishlist items
+app.post("/api/wishlist/:id/upload-image", upload.single("image"), async (req, res) => {
+  console.log("📸 Upload image request for item:", req.params.id, "User:", req.userId);
+  if (!req.userId) return res.status(401).send("Unauthorized");
+  if (!req.file) {
+    console.log("❌ No file uploaded");
+    return res.status(400).send("No file uploaded");
+  }
+  console.log("✅ File received:", req.file.filename, "Size:", req.file.size);
+
+  const { id } = req.params;
+  
+  try {
+    // Verify item exists and belongs to user
+    const existing = await all("SELECT * FROM wishlist_items WHERE id = ? AND user_id = ?", [id, req.userId]);
+    if (!existing.length) {
+      console.log("❌ Item not found:", id);
+      return res.status(404).send("Item not found");
+    }
+    console.log("✅ Item found:", existing[0].item);
+
+    // Delete old image if it exists
+    if (existing[0].image_path) {
+      const oldPath = path.join(uploadsDir, path.basename(existing[0].image_path));
+      if (fs.existsSync(oldPath)) {
+        fs.unlinkSync(oldPath);
+      }
+    }
+
+    // Save new image path to database
+    const imagePath = `/uploads/${req.file.filename}`;
+    console.log("💾 Saving image path:", imagePath);
+    await run(
+      "UPDATE wishlist_items SET image_path = ? WHERE id = ? AND user_id = ?",
+      [imagePath, id, req.userId]
+    );
+
+    const [item] = await all("SELECT * FROM wishlist_items WHERE id = ?", [id]);
+    console.log("✅ Image saved successfully. Item:", item);
+    res.json(item);
+  } catch (err) {
+    console.error("❌ Image upload error:", err);
+    res.status(500).json({ error: "Image upload failed" });
+  }
+});
+
+// Delete image endpoint for wishlist items
+app.delete("/api/wishlist/:id/delete-image", async (req, res) => {
+  if (!req.userId) return res.status(401).send("Unauthorized");
+  const { id } = req.params;
+
+  try {
+    // Verify item exists and belongs to user
+    const existing = await all("SELECT * FROM wishlist_items WHERE id = ? AND user_id = ?", [id, req.userId]);
+    if (!existing.length) return res.status(404).send("Item not found");
+
+    // Delete image file if it exists
+    if (existing[0].image_path) {
+      const imagePath = path.join(uploadsDir, path.basename(existing[0].image_path));
+      if (fs.existsSync(imagePath)) {
+        fs.unlinkSync(imagePath);
+      }
+    }
+
+    // Clear image_path from database
+    await run(
+      "UPDATE wishlist_items SET image_path = NULL WHERE id = ? AND user_id = ?",
+      [id, req.userId]
+    );
+
+    const [item] = await all("SELECT * FROM wishlist_items WHERE id = ?", [id]);
+    res.json(item);
+  } catch (err) {
+    console.error("❌ Image delete error:", err);
+    res.status(500).json({ error: "Image deletion failed" });
+  }
 });
 
 // Monthly Budgets
