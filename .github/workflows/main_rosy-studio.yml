@@ -25,13 +25,13 @@ jobs:
 
       - name: Install backend deps
         run: |
-          npm ci
+          npm install
           npm prune --omit=dev
 
       - name: Build frontend
         run: |
           cd client
-          npm ci
+          npm install
           npm run build
           cd ..
           rm -rf client/node_modules
