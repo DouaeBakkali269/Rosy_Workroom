@@ -1,25 +1,87 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { getTasks, createTask, updateTask, deleteTask, getNotes, getTransactions, getMonthlyBudgets } from '../services/api'
+import { getCurrentWeekPlan, saveWeekPlan, getNotes, getTransactions, getMonthlyBudgets } from '../services/api'
+
+const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+const DEFAULT_REFLECTION = { wins: '', lessons: '', nextWeek: '' }
+
+const createEmptyWeekPlan = () => DAYS.map(day => ({ day, tasks: [], notes: '', focus: '' }))
+
+function normalizeWeekPlan(plan) {
+  if (!Array.isArray(plan) || plan.length === 0) return createEmptyWeekPlan()
+  const byDay = new Map(plan.map(entry => [entry.day, entry]))
+  return createEmptyWeekPlan().map(entry => {
+    const existing = byDay.get(entry.day)
+    if (!existing) return entry
+    return {
+      day: entry.day,
+      tasks: Array.isArray(existing.tasks) ? existing.tasks : [],
+      notes: typeof existing.notes === 'string' ? existing.notes : '',
+      focus: typeof existing.focus === 'string' ? existing.focus : ''
+    }
+  })
+}
+
+function parseWeekPayload(payload) {
+  if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
+    const days = normalizeWeekPlan(payload.days || payload.plan || [])
+    const reflection = { ...DEFAULT_REFLECTION, ...(payload.reflection || {}) }
+    return { days, reflection }
+  }
+
+  return { days: normalizeWeekPlan(payload), reflection: DEFAULT_REFLECTION }
+}
+
+function getDefaultBlock() {
+  const hour = new Date().getHours()
+  if (hour < 12) return 'morning'
+  if (hour < 18) return 'evening'
+  return 'night'
+}
+
+function formatBlockLabel(block) {
+  if (block === 'anytime') return 'Anytime'
+  if (block === 'morning') return 'Morning'
+  if (block === 'evening') return 'Evening'
+  if (block === 'night') return 'Night'
+  return 'Anytime'
+}
 
 export default function DashboardPage() {
   const navigate = useNavigate()
-  const [tasks, setTasks] = useState([])
+  const [weekPlan, setWeekPlan] = useState(createEmptyWeekPlan())
+  const [weekKey, setWeekKey] = useState('')
+  const [weekReflection, setWeekReflection] = useState(DEFAULT_REFLECTION)
   const [notes, setNotes] = useState([])
   const [transactions, setTransactions] = useState([])
   const [monthlyBudgets, setMonthlyBudgets] = useState([])
   const [newTask, setNewTask] = useState('')
 
   useEffect(() => {
-    loadTasks()
+    loadCurrentWeek()
     loadNotes()
     loadTransactions()
     loadMonthlyBudgets()
   }, [])
 
-  async function loadTasks() {
-    const data = await getTasks()
-    setTasks(data)
+  useEffect(() => {
+    const interval = setInterval(() => {
+      loadCurrentWeek(true)
+    }, 15000)
+
+    return () => clearInterval(interval)
+  }, [weekKey])
+
+  async function loadCurrentWeek(isSilent = false) {
+    try {
+      const data = await getCurrentWeekPlan()
+      setWeekKey(data.weekKey || '')
+      const parsed = parseWeekPayload(data.plan)
+      setWeekPlan(parsed.days)
+      setWeekReflection(parsed.reflection)
+    } catch (error) {
+      console.error('Failed to load current week plan:', error)
+    }
   }
 
   async function loadNotes() {
@@ -40,19 +102,54 @@ export default function DashboardPage() {
   async function handleAddTask(e) {
     e.preventDefault()
     if (!newTask.trim()) return
-    await createTask({ title: newTask })
+    const todayIndex = getTodayIndex()
+    const updated = [...weekPlan]
+    updated[todayIndex].tasks.push({
+      id: Date.now(),
+      text: newTask.trim(),
+      done: false,
+      block: getDefaultBlock(),
+      priority: 'medium'
+    })
+    setWeekPlan(updated)
     setNewTask('')
-    loadTasks()
+    await saveWeekPlan(weekKey, { days: updated, reflection: weekReflection })
   }
 
-  async function handleToggleTask(id, done) {
-    await updateTask(id, { done })
-    loadTasks()
+  async function handleToggleTask(taskId, done) {
+    const todayIndex = getTodayIndex()
+    const updated = [...weekPlan]
+    const task = updated[todayIndex].tasks.find(t => t.id === taskId)
+    if (!task) return
+    task.done = done
+    setWeekPlan(updated)
+    await saveWeekPlan(weekKey, { days: updated, reflection: weekReflection })
   }
 
-  async function handleDeleteTask(id) {
-    await deleteTask(id)
-    loadTasks()
+  async function handleDeleteTask(taskId) {
+    const todayIndex = getTodayIndex()
+    const updated = [...weekPlan]
+    updated[todayIndex].tasks = updated[todayIndex].tasks.filter(t => t.id !== taskId)
+    setWeekPlan(updated)
+    await saveWeekPlan(weekKey, { days: updated, reflection: weekReflection })
+  }
+
+  function getTodayIndex() {
+    const dayIndex = (new Date().getDay() + 6) % 7
+    return dayIndex
+  }
+
+
+  async function moveTask(taskId, targetDayIndex) {
+    const todayIndex = getTodayIndex()
+    if (targetDayIndex === todayIndex) return
+    const updated = [...weekPlan]
+    const taskIndex = updated[todayIndex].tasks.findIndex(t => t.id === taskId)
+    if (taskIndex === -1) return
+    const [task] = updated[todayIndex].tasks.splice(taskIndex, 1)
+    updated[targetDayIndex].tasks.push(task)
+    setWeekPlan(updated)
+    await saveWeekPlan(weekKey, { days: updated, reflection: weekReflection })
   }
 
   const recentNotes = notes.slice(0, 2)
@@ -100,6 +197,10 @@ export default function DashboardPage() {
   const monthlyData = getMonthlySpending()
   const maxSpending = Math.max(...monthlyData.map(m => m.spending), 1)
 
+  const todayIndex = getTodayIndex()
+  const todayTasks = weekPlan[todayIndex]?.tasks || []
+  const todayLabel = DAYS[todayIndex]
+
   return (
     <section className="page-section active">
       <div className="hero-text-section">
@@ -109,12 +210,12 @@ export default function DashboardPage() {
 
       <div className="grid-3">
         <div className="card">
-          <div className="card-title">Today plan</div>
+          <div className="card-title">Today plan · {todayLabel}</div>
           <ul className="checklist" id="tasks-list">
-            {tasks.length === 0 ? (
+            {todayTasks.length === 0 ? (
               <div className="empty-state">No tasks yet. Add your first one 💗</div>
             ) : (
-              tasks.map(task => (
+              todayTasks.map(task => (
                 <li key={task.id}>
                   <label>
                     <input
@@ -122,9 +223,12 @@ export default function DashboardPage() {
                       checked={task.done}
                       onChange={(e) => handleToggleTask(task.id, e.target.checked)}
                     />
-                    {task.title}
+                    <span className={`priority-dot ${task.priority || 'medium'}`}></span>
+                    <span>{task.text}</span>
                   </label>
-                  <button className="icon-btn" onClick={() => handleDeleteTask(task.id)}>✕</button>
+                  <div className="task-actions-inline">
+                    <button className="icon-btn" onClick={() => handleDeleteTask(task.id)}>✕</button>
+                  </div>
                 </li>
               ))
             )}

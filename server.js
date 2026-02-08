@@ -30,17 +30,24 @@ function resolvePersistentBaseDir() {
 }
 
 const persistentBaseDir = resolvePersistentBaseDir();
-const dataDir = persistentBaseDir
+const defaultDataDir = persistentBaseDir
   ? path.join(persistentBaseDir, "data")
   : path.join(__dirname, "data");
+
+if (!fs.existsSync(defaultDataDir)) {
+  fs.mkdirSync(defaultDataDir, { recursive: true });
+}
+
+const localDbPath = path.join(__dirname, "rosy.db");
+const dbPath = process.env.SQLITE_DB_PATH
+  || process.env.DATABASE_PATH
+  || (fs.existsSync(localDbPath) ? localDbPath : path.join(defaultDataDir, "rosy.db"));
+
+const dataDir = path.dirname(dbPath);
 
 if (!fs.existsSync(dataDir)) {
   fs.mkdirSync(dataDir, { recursive: true });
 }
-
-const dbPath = process.env.SQLITE_DB_PATH
-  || process.env.DATABASE_PATH
-  || path.join(dataDir, "rosy.db");
 
 console.log("💾 Database path:", dbPath);
 console.log("📦 Data directory:", dataDir);
@@ -118,6 +125,22 @@ function all(sql, params = []) {
     });
   });
 }
+
+function formatDateLocal(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function getWeekStartKey(date = new Date()) {
+  const start = new Date(date);
+  const dayIndex = (start.getDay() + 6) % 7;
+  start.setDate(start.getDate() - dayIndex);
+  start.setHours(0, 0, 0, 0);
+  return formatDateLocal(start);
+}
+
 
 async function init() {
   console.log("🔄 Starting database initialization...");
@@ -1011,40 +1034,75 @@ app.post("/api/monthly-budgets", async (req, res) => {
 });
 
 // Week Planner
-app.get("/api/week-plan", async (req, res) => {
+app.get("/api/week-plan/current", async (req, res) => {
   if (!req.userId) return res.status(401).send("Unauthorized");
-  const weekKey = new Date().toISOString().split('T')[0].substring(0, 7); // YYYY-MM
+  const weekKey = getWeekStartKey();
   const rows = await all(
     "SELECT plan_data FROM week_plans WHERE week_key = ? AND user_id = ?",
     [weekKey, req.userId]
   );
-  
+
   if (rows.length > 0) {
     try {
-      res.json(JSON.parse(rows[0].plan_data));
+      return res.json({ weekKey, plan: JSON.parse(rows[0].plan_data) });
     } catch {
-      res.json([]);
+      return res.json({ weekKey, plan: [] });
     }
-  } else {
-    res.json([]);
   }
+
+  await run(
+    "INSERT INTO week_plans (week_key, plan_data, user_id) VALUES (?, ?, ?)",
+    [weekKey, JSON.stringify([]), req.userId]
+  );
+  return res.json({ weekKey, plan: [] });
+});
+
+app.get("/api/week-plan", async (req, res) => {
+  if (!req.userId) return res.status(401).send("Unauthorized");
+  const weekKey = req.query.weekKey || getWeekStartKey();
+  const rows = await all(
+    "SELECT plan_data FROM week_plans WHERE week_key = ? AND user_id = ?",
+    [weekKey, req.userId]
+  );
+
+  if (rows.length > 0) {
+    try {
+      return res.json({ weekKey, plan: JSON.parse(rows[0].plan_data) });
+    } catch {
+      return res.json({ weekKey, plan: [] });
+    }
+  }
+
+  return res.json({ weekKey, plan: [] });
+});
+
+app.get("/api/week-plan/history", async (req, res) => {
+  if (!req.userId) return res.status(401).send("Unauthorized");
+  const rows = await all(
+    "SELECT week_key, created_at, updated_at FROM week_plans WHERE user_id = ? ORDER BY week_key DESC",
+    [req.userId]
+  );
+  res.json({ currentWeekKey: getWeekStartKey(), weeks: rows });
 });
 
 app.post("/api/week-plan", async (req, res) => {
   if (!req.userId) return res.status(401).send("Unauthorized");
   const { body } = req;
-  if (!Array.isArray(body)) {
+  const weekKey = body && typeof body.weekKey === "string" ? body.weekKey : getWeekStartKey();
+  const planPayload = body && Object.prototype.hasOwnProperty.call(body, "plan") ? body.plan : body;
+  const isArrayPlan = Array.isArray(planPayload);
+  const isObjectPlan = planPayload && typeof planPayload === "object" && Array.isArray(planPayload.days);
+
+  if (!isArrayPlan && !isObjectPlan) {
     return res.status(400).send("Week plan data required");
   }
-  
-  const weekKey = new Date().toISOString().split('T')[0].substring(0, 7); // YYYY-MM
-  const planData = JSON.stringify(body);
-  
+
+  const planData = JSON.stringify(planPayload);
   const existing = await all(
     "SELECT id FROM week_plans WHERE week_key = ? AND user_id = ?",
     [weekKey, req.userId]
   );
-  
+
   if (existing.length > 0) {
     await run(
       "UPDATE week_plans SET plan_data = ?, updated_at = CURRENT_TIMESTAMP WHERE week_key = ? AND user_id = ?",
@@ -1056,8 +1114,8 @@ app.post("/api/week-plan", async (req, res) => {
       [weekKey, planData, req.userId]
     );
   }
-  
-  res.status(201).json(body);
+
+  res.status(201).json({ weekKey, plan: planPayload });
 });
 
 // Authentication endpoints
