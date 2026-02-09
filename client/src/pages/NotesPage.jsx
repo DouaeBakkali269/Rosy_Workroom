@@ -1,19 +1,21 @@
 import { useState, useEffect } from 'react'
 import useLockBodyScroll from '../hooks/useLockBodyScroll'
 import ModalPortal from '../components/ModalPortal'
+import ConfirmModal from '../components/ConfirmModal'
 import { getNotes, createNote, deleteNote } from '../services/api'
 
 export default function NotesPage() {
   const [notes, setNotes] = useState([])
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState({ isOpen: false, noteId: null, noteTitle: '' })
   const [formData, setFormData] = useState({
     title: '',
     content: '',
     tags: ''
   })
 
-  useLockBodyScroll(isModalOpen)
+  useLockBodyScroll(isModalOpen || confirmDelete.isOpen)
 
   useEffect(() => {
     loadNotes()
@@ -56,15 +58,25 @@ export default function NotesPage() {
     }
   }
 
-  async function handleDelete(id) {
+  function handleDelete(id) {
+    const note = notes.find(n => n.id === id)
+    setConfirmDelete({
+      isOpen: true,
+      noteId: id,
+      noteTitle: note?.title || 'this note'
+    })
+  }
+
+  async function confirmDeleteNote() {
     try {
       setLoading(true)
-      await deleteNote(id)
-      setNotes(notes.filter(n => n.id !== id))
+      await deleteNote(confirmDelete.noteId)
+      setNotes(notes.filter(n => n.id !== confirmDelete.noteId))
     } catch (error) {
       console.error('Failed to delete note:', error)
     } finally {
       setLoading(false)
+      setConfirmDelete({ isOpen: false, noteId: null, noteTitle: '' })
     }
   }
 
@@ -139,6 +151,13 @@ export default function NotesPage() {
           ))
         )}
       </div>
+      <ConfirmModal
+        isOpen={confirmDelete.isOpen}
+        onConfirm={confirmDeleteNote}
+        onCancel={() => setConfirmDelete({ isOpen: false, noteId: null, noteTitle: '' })}
+        title="Delete note"
+        message={`Are you sure you want to delete "${confirmDelete.noteTitle}"? This action cannot be undone.`}
+      />
     </section>
   )
 }

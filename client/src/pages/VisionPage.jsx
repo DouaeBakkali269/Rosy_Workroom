@@ -1,18 +1,20 @@
 import { useState, useEffect } from 'react'
 import useLockBodyScroll from '../hooks/useLockBodyScroll'
 import ModalPortal from '../components/ModalPortal'
+import ConfirmModal from '../components/ConfirmModal'
 import { getVisionGoals, createVisionGoal, deleteVisionGoal } from '../services/api'
 
 export default function VisionPage() {
   const [goals, setGoals] = useState([])
   const [isModalOpen, setIsModalOpen] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState({ isOpen: false, goalId: null, goalTitle: '' })
   const [formData, setFormData] = useState({
     title: '',
     description: '',
     icon: '✨'
   })
 
-  useLockBodyScroll(isModalOpen)
+  useLockBodyScroll(isModalOpen || confirmDelete.isOpen)
 
   useEffect(() => {
     loadGoals()
@@ -45,12 +47,23 @@ export default function VisionPage() {
     }
   }
 
-  async function handleDelete(id) {
+  function handleDelete(id) {
+    const goal = goals.find(item => item.id === id)
+    setConfirmDelete({
+      isOpen: true,
+      goalId: id,
+      goalTitle: goal?.title || 'this goal'
+    })
+  }
+
+  async function confirmDeleteGoal() {
     try {
-      await deleteVisionGoal(id)
+      await deleteVisionGoal(confirmDelete.goalId)
       loadGoals()
     } catch (error) {
       console.error('Failed to delete vision goal:', error)
+    } finally {
+      setConfirmDelete({ isOpen: false, goalId: null, goalTitle: '' })
     }
   }
 
@@ -116,6 +129,13 @@ export default function VisionPage() {
           </div>
         ))}
       </div>
+      <ConfirmModal
+        isOpen={confirmDelete.isOpen}
+        onConfirm={confirmDeleteGoal}
+        onCancel={() => setConfirmDelete({ isOpen: false, goalId: null, goalTitle: '' })}
+        title="Delete goal"
+        message={`Are you sure you want to delete "${confirmDelete.goalTitle}"? This action cannot be undone.`}
+      />
     </section>
   )
 }

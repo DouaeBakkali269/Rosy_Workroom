@@ -1,12 +1,14 @@
 import { useState, useEffect } from 'react'
 import useLockBodyScroll from '../hooks/useLockBodyScroll'
 import ModalPortal from '../components/ModalPortal'
+import ConfirmModal from '../components/ConfirmModal'
 import { getTransactions, createTransaction, deleteTransaction, getMonthlyBudget, setMonthlyBudget } from '../services/api'
 
 export default function MoneyPage() {
   const [transactions, setTransactions] = useState([])
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [isBudgetModalOpen, setIsBudgetModalOpen] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState({ isOpen: false, txId: null, txLabel: '' })
   const [monthlyBudget, setMonthlyBudgetState] = useState(0)
   const [budgetInput, setBudgetInput] = useState('')
   const [formData, setFormData] = useState({
@@ -16,7 +18,7 @@ export default function MoneyPage() {
     amount: ''
   })
 
-  useLockBodyScroll(isModalOpen || isBudgetModalOpen)
+  useLockBodyScroll(isModalOpen || isBudgetModalOpen || confirmDelete.isOpen)
 
   useEffect(() => {
     loadTransactions()
@@ -71,8 +73,18 @@ export default function MoneyPage() {
     }
   }
 
-  async function handleDelete(id) {
-    await deleteTransaction(id)
+  function handleDelete(id) {
+    const tx = transactions.find(item => item.id === id)
+    setConfirmDelete({
+      isOpen: true,
+      txId: id,
+      txLabel: tx?.item || 'this transaction'
+    })
+  }
+
+  async function confirmDeleteTransaction() {
+    await deleteTransaction(confirmDelete.txId)
+    setConfirmDelete({ isOpen: false, txId: null, txLabel: '' })
     loadTransactions()
   }
 
@@ -245,6 +257,13 @@ export default function MoneyPage() {
           </tbody>
         </table>
       </div>
+      <ConfirmModal
+        isOpen={confirmDelete.isOpen}
+        onConfirm={confirmDeleteTransaction}
+        onCancel={() => setConfirmDelete({ isOpen: false, txId: null, txLabel: '' })}
+        title="Delete transaction"
+        message={`Are you sure you want to delete "${confirmDelete.txLabel}"? This action cannot be undone.`}
+      />
     </section>
   )
 }

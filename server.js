@@ -186,7 +186,23 @@ async function init() {
       dueDate TEXT,
       description TEXT,
       amount REAL DEFAULT 0,
+      position INTEGER DEFAULT 0,
+      tags TEXT,
+      priority TEXT,
+      attachments TEXT,
+      checklist_groups TEXT,
       FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+    )`
+  );
+
+  await run(
+    `CREATE TABLE IF NOT EXISTS kanban_columns (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      key TEXT NOT NULL,
+      name TEXT NOT NULL,
+      position INTEGER DEFAULT 0,
+      user_id INTEGER,
+      UNIQUE(key, user_id)
     )`
   );
 
@@ -271,6 +287,11 @@ async function init() {
         dueDate TEXT,
         description TEXT,
         amount REAL DEFAULT 0,
+        position INTEGER DEFAULT 0,
+        tags TEXT,
+        priority TEXT,
+        attachments TEXT,
+        checklist_groups TEXT,
         FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
       )`
     );
@@ -284,10 +305,15 @@ async function init() {
       existing.has("dueDate") ? "dueDate" : "NULL as dueDate",
       existing.has("description") ? "description" : "NULL as description",
       existing.has("amount") ? "amount" : "0 as amount",
+      existing.has("position") ? "position" : "id as position",
+      existing.has("tags") ? "tags" : "NULL as tags",
+      existing.has("priority") ? "priority" : "NULL as priority",
+      existing.has("attachments") ? "attachments" : "NULL as attachments",
+      existing.has("checklist_groups") ? "checklist_groups" : "NULL as checklist_groups",
     ];
 
     await run(
-      `INSERT INTO kanban_cards_new (id, project_id, title, label, status, dueDate, description, amount)
+      `INSERT INTO kanban_cards_new (id, project_id, title, label, status, dueDate, description, amount, position, tags, priority, attachments, checklist_groups)
        SELECT ${selectExprs.join(", ")} FROM kanban_cards`
     );
 
@@ -305,6 +331,11 @@ async function init() {
     { name: "dueDate", sql: "ALTER TABLE kanban_cards ADD COLUMN dueDate TEXT" },
     { name: "description", sql: "ALTER TABLE kanban_cards ADD COLUMN description TEXT" },
     { name: "amount", sql: "ALTER TABLE kanban_cards ADD COLUMN amount REAL DEFAULT 0" },
+    { name: "position", sql: "ALTER TABLE kanban_cards ADD COLUMN position INTEGER DEFAULT 0" },
+    { name: "tags", sql: "ALTER TABLE kanban_cards ADD COLUMN tags TEXT" },
+    { name: "priority", sql: "ALTER TABLE kanban_cards ADD COLUMN priority TEXT" },
+    { name: "attachments", sql: "ALTER TABLE kanban_cards ADD COLUMN attachments TEXT" },
+    { name: "checklist_groups", sql: "ALTER TABLE kanban_cards ADD COLUMN checklist_groups TEXT" },
   ];
 
   for (const migration of migrations) {
@@ -353,6 +384,32 @@ async function init() {
   } catch (err) {
     console.error("⚠️  Failed to add checklist column:", err.message);
     // Continue anyway
+  }
+
+  try {
+    await run("UPDATE kanban_cards SET position = id WHERE position IS NULL OR position = 0");
+  } catch (err) {
+    console.error("⚠️  Failed to backfill kanban positions:", err.message);
+  }
+
+  try {
+    const columns = await all("SELECT * FROM kanban_columns WHERE user_id IS NULL");
+    if (!columns.length) {
+      await run(
+        "INSERT INTO kanban_columns (key, name, position, user_id) VALUES (?, ?, ?, ?)",
+        ["todo", "To Do", 1, null]
+      );
+      await run(
+        "INSERT INTO kanban_columns (key, name, position, user_id) VALUES (?, ?, ?, ?)",
+        ["inprogress", "In Progress", 2, null]
+      );
+      await run(
+        "INSERT INTO kanban_columns (key, name, position, user_id) VALUES (?, ?, ?, ?)",
+        ["done", "Done", 3, null]
+      );
+    }
+  } catch (err) {
+    console.error("⚠️  Failed to seed kanban columns:", err.message);
   }
 
   // Migrate wishlist_items table to ensure all columns exist
@@ -699,34 +756,137 @@ app.delete("/api/transactions/:id", async (req, res) => {
 });
 
 // Kanban Cards
+app.get("/api/kanban/columns", async (req, res) => {
+  if (!req.userId) return res.status(401).send("Unauthorized");
+  const rows = await all(
+    "SELECT key, name, position FROM kanban_columns WHERE user_id IS NULL OR user_id = ? ORDER BY position ASC, id ASC",
+    [req.userId]
+  );
+  if (!rows.length) {
+    return res.json([
+      { key: "todo", name: "To Do", position: 1 },
+      { key: "inprogress", name: "In Progress", position: 2 },
+      { key: "done", name: "Done", position: 3 }
+    ]);
+  }
+  res.json(rows);
+});
+
+app.post("/api/kanban/columns", async (req, res) => {
+  if (!req.userId) return res.status(401).send("Unauthorized");
+  const { name } = req.body;
+  if (!name || typeof name !== "string") return res.status(400).send("Name required");
+  const slug = name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "") || "column";
+  const [row] = await all(
+    "SELECT COUNT(*) as count FROM kanban_columns WHERE key LIKE ? AND (user_id IS NULL OR user_id = ?)",
+    [`${slug}%`, req.userId]
+  );
+  const suffix = row?.count ? `-${row.count + 1}` : "";
+  const key = `${slug}${suffix}`;
+  const [positionRow] = await all(
+    "SELECT COALESCE(MAX(position), 0) as maxPos FROM kanban_columns WHERE user_id IS NULL OR user_id = ?",
+    [req.userId]
+  );
+  const position = (positionRow?.maxPos || 0) + 1;
+  await run(
+    "INSERT INTO kanban_columns (key, name, position, user_id) VALUES (?, ?, ?, ?)",
+    [key, name.trim(), position, req.userId]
+  );
+  res.status(201).json({ key, name: name.trim(), position });
+});
+
+app.put("/api/kanban/columns/:key", async (req, res) => {
+  if (!req.userId) return res.status(401).send("Unauthorized");
+  const { key } = req.params;
+  const { name, position } = req.body;
+  const existing = await all(
+    "SELECT * FROM kanban_columns WHERE key = ? AND (user_id IS NULL OR user_id = ?)",
+    [key, req.userId]
+  );
+  if (!existing.length) return res.status(404).send("Not found");
+  const nextName = typeof name === "string" && name.trim() ? name.trim() : existing[0].name;
+  const nextPosition = typeof position === "number" ? position : existing[0].position;
+  await run(
+    "UPDATE kanban_columns SET name = ?, position = ?, user_id = ? WHERE key = ? AND (user_id IS NULL OR user_id = ?)",
+    [nextName, nextPosition, req.userId, key, req.userId]
+  );
+  res.json({ key, name: nextName, position: nextPosition });
+});
+
+app.delete("/api/kanban/columns/:key", async (req, res) => {
+  if (!req.userId) return res.status(401).send("Unauthorized");
+  const { key } = req.params;
+  const existing = await all(
+    "SELECT * FROM kanban_columns WHERE key = ? AND (user_id IS NULL OR user_id = ?)",
+    [key, req.userId]
+  );
+  if (!existing.length) return res.status(404).send("Not found");
+
+  await run(
+    "UPDATE kanban_cards SET status = 'todo' WHERE user_id = ? AND status = ?",
+    [req.userId, key]
+  );
+  await run(
+    "DELETE FROM kanban_columns WHERE key = ? AND (user_id IS NULL OR user_id = ?)",
+    [key, req.userId]
+  );
+  res.status(204).send();
+});
+
 app.get("/api/kanban/:projectId", async (req, res) => {
   if (!req.userId) return res.status(401).send("Unauthorized");
   const { projectId } = req.params;
   const rows = await all(
-    "SELECT * FROM kanban_cards WHERE user_id = ? AND (project_id = ? OR (project_id IS NULL AND ? = '0')) ORDER BY id DESC",
+    "SELECT * FROM kanban_cards WHERE user_id = ? AND (project_id = ? OR (project_id IS NULL AND ? = '0')) ORDER BY status ASC, position ASC, id ASC",
     [req.userId, projectId === '0' ? null : projectId, projectId]
   );
   // Parse checklist JSON
   const cardsWithChecklist = rows.map(card => ({
     ...card,
-    checklist: card.checklist ? JSON.parse(card.checklist) : []
+    checklist: card.checklist ? JSON.parse(card.checklist) : [],
+    checklistGroups: card.checklist_groups
+      ? JSON.parse(card.checklist_groups)
+      : (card.checklist ? [{ id: "default", name: "Checklist", items: JSON.parse(card.checklist) }] : []),
+    tags: card.tags ? JSON.parse(card.tags) : [],
+    attachments: card.attachments ? JSON.parse(card.attachments) : [],
   }));
   res.json(cardsWithChecklist);
 });
 
 app.post("/api/kanban", async (req, res) => {
   if (!req.userId) return res.status(401).send("Unauthorized");
-  const { project_id, title, label, status, dueDate, description, amount, checklist } = req.body;
+  const { project_id, title, label, status, dueDate, description, amount, checklist, checklistGroups, position, tags, priority, attachments } = req.body;
   if (!title) return res.status(400).send("Title required");
   const checklistJson = JSON.stringify(checklist || []);
+  const checklistGroupsJson = JSON.stringify(checklistGroups || []);
+  const tagsJson = JSON.stringify(Array.isArray(tags) ? tags : []);
+  const attachmentsJson = JSON.stringify(Array.isArray(attachments) ? attachments : []);
+  let nextPosition = typeof position === "number" ? position : null;
+  if (nextPosition === null) {
+    const projectParam = project_id || null;
+    const [row] = await all(
+      "SELECT COALESCE(MAX(position), 0) as maxPos FROM kanban_cards WHERE user_id = ? AND status = ? AND (project_id = ? OR (project_id IS NULL AND ? IS NULL))",
+      [req.userId, status || 'todo', projectParam, projectParam]
+    );
+    nextPosition = (row?.maxPos || 0) + 1;
+  }
   const result = await run(
-    "INSERT INTO kanban_cards (project_id, title, label, status, dueDate, description, amount, checklist, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-    [project_id || null, title, label || null, status || 'todo', dueDate || null, description || null, amount || 0, checklistJson, req.userId]
+    "INSERT INTO kanban_cards (project_id, title, label, status, dueDate, description, amount, checklist, checklist_groups, tags, priority, attachments, position, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    [project_id || null, title, label || null, status || 'todo', dueDate || null, description || null, amount || 0, checklistJson, checklistGroupsJson, tagsJson, priority || null, attachmentsJson, nextPosition, req.userId]
   );
   const [card] = await all("SELECT * FROM kanban_cards WHERE id = ?", [result.lastID]);
   res.status(201).json({
     ...card,
-    checklist: card.checklist ? JSON.parse(card.checklist) : []
+    checklist: card.checklist ? JSON.parse(card.checklist) : [],
+    checklistGroups: card.checklist_groups
+      ? JSON.parse(card.checklist_groups)
+      : (card.checklist ? [{ id: "default", name: "Checklist", items: JSON.parse(card.checklist) }] : []),
+    tags: card.tags ? JSON.parse(card.tags) : [],
+    attachments: card.attachments ? JSON.parse(card.attachments) : [],
   });
 });
 
@@ -735,7 +895,7 @@ app.put("/api/kanban/:id", async (req, res) => {
   const { id } = req.params;
   const existing = await all("SELECT * FROM kanban_cards WHERE id = ? AND user_id = ?", [id, req.userId]);
   if (!existing.length) return res.status(404).send("Not found");
-  const { title, label, status, dueDate, description, amount, checklist } = req.body;
+  const { title, label, status, dueDate, description, amount, checklist, checklistGroups, position, tags, priority, attachments } = req.body;
   const next = {
     title: title ?? existing[0].title,
     label: label ?? existing[0].label,
@@ -744,15 +904,25 @@ app.put("/api/kanban/:id", async (req, res) => {
     description: description ?? existing[0].description,
     amount: typeof amount === "number" ? amount : existing[0].amount,
     checklist: checklist !== undefined ? JSON.stringify(checklist) : existing[0].checklist,
+    checklistGroups: checklistGroups !== undefined ? JSON.stringify(checklistGroups) : existing[0].checklist_groups,
+    tags: tags !== undefined ? JSON.stringify(Array.isArray(tags) ? tags : []) : existing[0].tags,
+    priority: priority ?? existing[0].priority,
+    attachments: attachments !== undefined ? JSON.stringify(Array.isArray(attachments) ? attachments : []) : existing[0].attachments,
+    position: typeof position === "number" ? position : existing[0].position,
   };
   await run(
-    "UPDATE kanban_cards SET title = ?, label = ?, status = ?, dueDate = ?, description = ?, amount = ?, checklist = ? WHERE id = ? AND user_id = ?",
-    [next.title, next.label, next.status, next.dueDate, next.description, next.amount, next.checklist, id, req.userId]
+    "UPDATE kanban_cards SET title = ?, label = ?, status = ?, dueDate = ?, description = ?, amount = ?, checklist = ?, checklist_groups = ?, tags = ?, priority = ?, attachments = ?, position = ? WHERE id = ? AND user_id = ?",
+    [next.title, next.label, next.status, next.dueDate, next.description, next.amount, next.checklist, next.checklistGroups, next.tags, next.priority, next.attachments, next.position, id, req.userId]
   );
   const [card] = await all("SELECT * FROM kanban_cards WHERE id = ?", [id]);
   res.json({
     ...card,
-    checklist: card.checklist ? JSON.parse(card.checklist) : []
+    checklist: card.checklist ? JSON.parse(card.checklist) : [],
+    checklistGroups: card.checklist_groups
+      ? JSON.parse(card.checklist_groups)
+      : (card.checklist ? [{ id: "default", name: "Checklist", items: JSON.parse(card.checklist) }] : []),
+    tags: card.tags ? JSON.parse(card.tags) : [],
+    attachments: card.attachments ? JSON.parse(card.attachments) : [],
   });
 });
 

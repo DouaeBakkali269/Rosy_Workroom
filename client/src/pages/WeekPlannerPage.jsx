@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
+import useLockBodyScroll from '../hooks/useLockBodyScroll'
+import ConfirmModal from '../components/ConfirmModal'
 import { getCurrentWeekPlan, getWeekPlan, getWeekPlanHistory, saveWeekPlan } from '../services/api'
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
@@ -81,6 +83,14 @@ export default function WeekPlannerPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const navigate = useNavigate()
   const [weekReflection, setWeekReflection] = useState(DEFAULT_REFLECTION)
+  const [confirmDelete, setConfirmDelete] = useState({
+    isOpen: false,
+    dayIndex: null,
+    taskId: null,
+    taskText: ''
+  })
+
+  useLockBodyScroll(confirmDelete.isOpen)
 
   useEffect(() => {
     const requestedWeek = searchParams.get('week') || ''
@@ -208,6 +218,22 @@ export default function WeekPlannerPage() {
     updated[dayIndex].tasks = updated[dayIndex].tasks.filter(t => t.id !== taskId)
     setWeekPlan(updated)
     saveChanges(updated)
+  }
+
+  function handleDeleteTask(dayIndex, taskId) {
+    const task = weekPlan[dayIndex]?.tasks.find(t => t.id === taskId)
+    setConfirmDelete({
+      isOpen: true,
+      dayIndex,
+      taskId,
+      taskText: task?.text || 'this task'
+    })
+  }
+
+  function confirmDeleteTask() {
+    if (confirmDelete.dayIndex === null || confirmDelete.taskId === null) return
+    deleteTask(confirmDelete.dayIndex, confirmDelete.taskId)
+    setConfirmDelete({ isOpen: false, dayIndex: null, taskId: null, taskText: '' })
   }
 
 
@@ -466,7 +492,7 @@ export default function WeekPlannerPage() {
                               </select>
                               <button
                                 className="icon-btn"
-                                onClick={() => deleteTask(selectedDay, task.id)}
+                                onClick={() => handleDeleteTask(selectedDay, task.id)}
                               >
                                 ×
                               </button>
@@ -533,6 +559,13 @@ export default function WeekPlannerPage() {
         </div>
       </div>
       {isLoading && <p className="week-loading">Loading your planner...</p>}
+      <ConfirmModal
+        isOpen={confirmDelete.isOpen}
+        onConfirm={confirmDeleteTask}
+        onCancel={() => setConfirmDelete({ isOpen: false, dayIndex: null, taskId: null, taskText: '' })}
+        title="Delete task"
+        message={`Are you sure you want to delete "${confirmDelete.taskText}"? This action cannot be undone.`}
+      />
     </section>
   )
 }

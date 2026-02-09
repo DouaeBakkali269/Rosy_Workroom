@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
+import useLockBodyScroll from '../hooks/useLockBodyScroll'
+import ConfirmModal from '../components/ConfirmModal'
 import { getCurrentWeekPlan, saveWeekPlan, getNotes, getTransactions, getMonthlyBudgets } from '../services/api'
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
@@ -56,6 +58,11 @@ export default function DashboardPage() {
   const [transactions, setTransactions] = useState([])
   const [monthlyBudgets, setMonthlyBudgets] = useState([])
   const [newTask, setNewTask] = useState('')
+  const [draggedTaskId, setDraggedTaskId] = useState(null)
+  const [dragOverTaskId, setDragOverTaskId] = useState(null)
+  const [confirmDelete, setConfirmDelete] = useState({ isOpen: false, taskId: null, taskText: '' })
+
+  useLockBodyScroll(confirmDelete.isOpen)
 
   useEffect(() => {
     loadCurrentWeek()
@@ -126,10 +133,50 @@ export default function DashboardPage() {
     await saveWeekPlan(weekKey, { days: updated, reflection: weekReflection })
   }
 
-  async function handleDeleteTask(taskId) {
+  function handleDeleteTask(taskId) {
+    const todayIndex = getTodayIndex()
+    const task = weekPlan[todayIndex]?.tasks.find(t => t.id === taskId)
+    setConfirmDelete({
+      isOpen: true,
+      taskId,
+      taskText: task?.text || 'this task'
+    })
+  }
+
+  async function confirmDeleteTask() {
     const todayIndex = getTodayIndex()
     const updated = [...weekPlan]
-    updated[todayIndex].tasks = updated[todayIndex].tasks.filter(t => t.id !== taskId)
+    updated[todayIndex].tasks = updated[todayIndex].tasks.filter(t => t.id !== confirmDelete.taskId)
+    setWeekPlan(updated)
+    await saveWeekPlan(weekKey, { days: updated, reflection: weekReflection })
+    setConfirmDelete({ isOpen: false, taskId: null, taskText: '' })
+  }
+
+  async function handleTaskReorder(targetTaskId) {
+    if (!draggedTaskId || draggedTaskId === targetTaskId) return
+    const todayIndex = getTodayIndex()
+    const updated = [...weekPlan]
+    const tasks = [...updated[todayIndex].tasks]
+    const fromIndex = tasks.findIndex(task => task.id === draggedTaskId)
+    const toIndex = tasks.findIndex(task => task.id === targetTaskId)
+    if (fromIndex === -1 || toIndex === -1) return
+    const [moved] = tasks.splice(fromIndex, 1)
+    tasks.splice(toIndex, 0, moved)
+    updated[todayIndex] = { ...updated[todayIndex], tasks }
+    setWeekPlan(updated)
+    await saveWeekPlan(weekKey, { days: updated, reflection: weekReflection })
+  }
+
+  async function handleTaskDropToEnd() {
+    if (!draggedTaskId) return
+    const todayIndex = getTodayIndex()
+    const updated = [...weekPlan]
+    const tasks = [...updated[todayIndex].tasks]
+    const fromIndex = tasks.findIndex(task => task.id === draggedTaskId)
+    if (fromIndex === -1) return
+    const [moved] = tasks.splice(fromIndex, 1)
+    tasks.push(moved)
+    updated[todayIndex] = { ...updated[todayIndex], tasks }
     setWeekPlan(updated)
     await saveWeekPlan(weekKey, { days: updated, reflection: weekReflection })
   }
@@ -211,12 +258,43 @@ export default function DashboardPage() {
       <div className="grid-3">
         <div className="card">
           <div className="card-title">Today plan · {todayLabel}</div>
-          <ul className="checklist" id="tasks-list">
+          <ul
+            className="checklist"
+            id="tasks-list"
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={async (e) => {
+              e.preventDefault()
+              await handleTaskDropToEnd()
+              setDraggedTaskId(null)
+              setDragOverTaskId(null)
+            }}
+          >
             {todayTasks.length === 0 ? (
               <div className="empty-state">No tasks yet. Add your first one 💗</div>
             ) : (
               todayTasks.map(task => (
-                <li key={task.id}>
+                <li
+                  key={task.id}
+                  draggable
+                  onDragStart={() => setDraggedTaskId(task.id)}
+                  onDragOver={(e) => {
+                    e.preventDefault()
+                    if (dragOverTaskId !== task.id) setDragOverTaskId(task.id)
+                  }}
+                  onDragLeave={() => setDragOverTaskId(null)}
+                  onDrop={async (e) => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    await handleTaskReorder(task.id)
+                    setDraggedTaskId(null)
+                    setDragOverTaskId(null)
+                  }}
+                  onDragEnd={() => {
+                    setDraggedTaskId(null)
+                    setDragOverTaskId(null)
+                  }}
+                  className={dragOverTaskId === task.id ? 'drag-over' : ''}
+                >
                   <label>
                     <input
                       type="checkbox"
@@ -282,6 +360,13 @@ export default function DashboardPage() {
           </div>
         </div>
       </div>
+      <ConfirmModal
+        isOpen={confirmDelete.isOpen}
+        onConfirm={confirmDeleteTask}
+        onCancel={() => setConfirmDelete({ isOpen: false, taskId: null, taskText: '' })}
+        title="Delete task"
+        message={`Are you sure you want to delete "${confirmDelete.taskText}"? This action cannot be undone.`}
+      />
     </section>
   )
 }

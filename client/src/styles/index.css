@@ -193,7 +193,7 @@ body.modal-open {
   z-index: 1;
   flex: 1;
   margin-top: 0;
-  overflow-y: auto;
+  overflow: visible;
 }
 
 .content::before {
@@ -949,6 +949,12 @@ body.modal-open {
   display: flex;
   gap: 8px;
   align-items: center;
+  cursor: grab;
+}
+
+.checklist li.drag-over {
+  outline: 2px dashed rgba(213, 111, 147, 0.6);
+  outline-offset: 2px;
 }
 
 .checklist li label {
@@ -1225,6 +1231,11 @@ body.modal-open {
   transition: opacity 0.2s ease, transform 0.2s ease;
 }
 
+.kanban-card.drag-over {
+  outline: 2px dashed rgba(213, 111, 147, 0.7);
+  outline-offset: 2px;
+}
+
 .kanban-card:active {
   cursor: grabbing;
   opacity: 0.7;
@@ -1309,6 +1320,13 @@ body.modal-open {
   text-transform: uppercase;
   letter-spacing: 1px;
   color: #a24f74;
+}
+
+.card-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
 }
 
 .card-meta {
@@ -2060,6 +2078,11 @@ body.modal-open {
   transition: all 0.3s ease;
 }
 
+.checklist-item.drag-over {
+  outline: 2px dashed rgba(213, 111, 147, 0.6);
+  outline-offset: 2px;
+}
+
 .checklist-item:hover {
   background: rgba(255, 255, 255, 0.6);
   border-color: rgba(185, 92, 127, 0.3);
@@ -2100,6 +2123,355 @@ body.modal-open {
   padding: 0 5px;
   transition: all 0.2s ease;
   flex-shrink: 0;
+}
+
+.task-format-toolbar {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  gap: 6px;
+  padding: 4px 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.85);
+  border: 1px solid rgba(233, 157, 186, 0.35);
+  box-shadow: 0 6px 16px rgba(213, 111, 147, 0.12);
+  z-index: 2;
+}
+
+.task-format-toolbar button {
+  border: none;
+  background: rgba(245, 143, 178, 0.2);
+  border-radius: 999px;
+  padding: 4px 8px;
+  font-family: "Architects Daughter", serif;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.task-description-wrap {
+  position: relative;
+}
+
+.task-description.editor {
+  min-height: 120px;
+  padding: 12px;
+  border-radius: 10px;
+  border: 2px solid rgba(240, 169, 195, 0.6);
+  background: rgba(255, 255, 255, 0.85);
+  font-family: "Architects Daughter", sans-serif;
+  font-size: 14px;
+  color: #5a2d3c;
+}
+
+.task-description.editor:focus {
+  outline: none;
+  border-color: rgba(213, 111, 147, 0.8);
+  box-shadow: 0 0 0 3px rgba(233, 157, 186, 0.3);
+}
+
+.task-description.editor:empty::before {
+  content: attr(data-placeholder);
+  color: rgba(107, 56, 80, 0.6);
+}
+
+.task-action-group {
+  position: relative;
+}
+
+.task-action-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  display: grid;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.95);
+  border: 1px solid rgba(233, 157, 186, 0.35);
+  border-radius: 10px;
+  padding: 8px;
+  min-width: 140px;
+  z-index: 5;
+}
+
+.task-action-input {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.task-action-input .input {
+  min-width: 160px;
+}
+
+.task-action-menu button {
+  border: none;
+  background: rgba(245, 143, 178, 0.15);
+  border-radius: 8px;
+  padding: 6px 10px;
+  cursor: pointer;
+  text-align: left;
+  font-family: "Architects Daughter", serif;
+}
+
+.task-date-input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+  width: 0;
+  height: 0;
+  padding: 0;
+  border: 0;
+}
+
+.task-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.task-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(245, 143, 178, 0.2);
+  border: 1px solid rgba(233, 157, 186, 0.4);
+  font-size: 12px;
+}
+
+.tag-remove {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: rgba(185, 92, 127, 0.8);
+}
+
+.task-inline-form {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.task-priority {
+  text-transform: capitalize;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  background: rgba(233, 157, 186, 0.2);
+  border: 1px solid rgba(233, 157, 186, 0.4);
+}
+
+.task-priority.high {
+  background: rgba(233, 123, 143, 0.25);
+  border-color: rgba(233, 123, 143, 0.6);
+}
+
+.task-priority.low {
+  background: rgba(156, 214, 178, 0.25);
+  border-color: rgba(156, 214, 178, 0.6);
+}
+
+.checklist-group {
+  margin-bottom: 16px;
+}
+
+.checklist-group-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.checklist-group-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.checklist-group-delete {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: rgba(185, 92, 127, 0.8);
+  font-size: 14px;
+}
+
+.checklist-group-create {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.attachment-list {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.attachment-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.6);
+  border-radius: 8px;
+  border: 1px solid rgba(233, 157, 186, 0.35);
+}
+
+.attachment-item button {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: rgba(185, 92, 127, 0.8);
+}
+
+.kanban-column-add-inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.kanban-column-add-input {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.kanban-action-group {
+  display: grid;
+  gap: 8px;
+}
+
+.kanban-action-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.kanban-action-popover {
+  position: relative;
+}
+
+.kanban-column-add-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  background: rgba(255, 255, 255, 0.95);
+  border: 1px solid rgba(233, 157, 186, 0.35);
+  border-radius: 10px;
+  padding: 8px;
+  box-shadow: 0 10px 24px rgba(213, 111, 147, 0.18);
+  z-index: 5;
+}
+
+.kanban-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.kanban-title-btn {
+  border: none;
+  background: transparent;
+  font-weight: 700;
+  font-size: 18px;
+  color: var(--ink);
+  font-family: "Architects Daughter", serif;
+  cursor: text;
+  padding: 0;
+}
+
+.kanban-title-input {
+  font-size: 16px;
+  padding: 6px 8px;
+}
+
+.kanban-col-delete {
+  border: none;
+  background: transparent;
+  color: rgba(185, 92, 127, 0.7);
+  cursor: pointer;
+  font-size: 14px;
+  padding: 0;
+}
+
+.kanban-col-delete:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.kanban-count {
+  display: inline-flex;
+  font-size: 12px;
+  opacity: 0.7;
+  margin-top: 4px;
+}
+
+.card-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.card-tag {
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: rgba(245, 143, 178, 0.2);
+  border: 1px solid rgba(233, 157, 186, 0.35);
+}
+
+.card-priority {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 6px;
+  border-radius: 999px;
+  font-size: 12px;
+  background: rgba(233, 157, 186, 0.2);
+  border: 1px solid rgba(233, 157, 186, 0.4);
+  text-transform: capitalize;
+}
+
+.task-section-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.card-priority.high {
+  background: rgba(233, 123, 143, 0.25);
+  border-color: rgba(233, 123, 143, 0.6);
+}
+
+.card-priority.low {
+  background: rgba(156, 214, 178, 0.25);
+  border-color: rgba(156, 214, 178, 0.6);
+}
+
+.card-desc-text {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.card-read-more {
+  border: none;
+  background: transparent;
+  color: #d56f93;
+  font-weight: 700;
+  font-family: "Architects Daughter", serif;
+  cursor: pointer;
+  padding: 0;
+  margin-top: 4px;
 }
 
 .checklist-delete:hover {

@@ -49,6 +49,10 @@ export const createTransaction = (data) => apiRequest('transactions', { method: 
 export const deleteTransaction = (id) => apiRequest(`transactions/${id}`, { method: 'DELETE' })
 
 // Kanban Cards
+export const getKanbanColumns = () => apiRequest('kanban/columns')
+export const createKanbanColumn = (data) => apiRequest('kanban/columns', { method: 'POST', body: JSON.stringify(data) })
+export const updateKanbanColumn = (key, data) => apiRequest(`kanban/columns/${encodeURIComponent(key)}`, { method: 'PUT', body: JSON.stringify(data) })
+export const deleteKanbanColumn = (key) => apiRequest(`kanban/columns/${encodeURIComponent(key)}`, { method: 'DELETE' })
 export const getKanbanCards = (projectId = 0) => apiRequest(`kanban/${projectId}`)
 export const createKanbanCard = (data) => apiRequest('kanban', { method: 'POST', body: JSON.stringify(data) })
 export const updateKanbanCard = (id, data) => apiRequest(`kanban/${id}`, { method: 'PUT', body: JSON.stringify(data) })

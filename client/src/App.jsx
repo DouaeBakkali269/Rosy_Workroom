@@ -34,16 +34,15 @@ function AppLayout({ user, onLogout }) {
 }
 
 function App() {
-  const [user, setUser] = useState(null)
-
-  useEffect(() => {
-    // Check if user is logged in
+  const [user, setUser] = useState(() => {
     const storedUser = localStorage.getItem('user')
-    console.log('🔍 Checking for stored user:', storedUser)
-    if (storedUser) {
-      setUser(JSON.parse(storedUser))
+    if (!storedUser) return null
+    try {
+      return JSON.parse(storedUser)
+    } catch {
+      return null
     }
-  }, [])
+  })
 
   function handleLogin(userData) {
     console.log('✅ User logged in:', userData)
@@ -56,8 +55,6 @@ function App() {
     localStorage.removeItem('user')
     setUser(null)
   }
-
-  console.log('🎯 Current user state:', user)
 
   return (
     <BrowserRouter>

@@ -4,13 +4,27 @@ export default function useLockBodyScroll(isLocked) {
   useEffect(() => {
     if (!isLocked) return undefined
 
-    const originalOverflow = document.body.style.overflow
-    document.body.classList.add('modal-open')
-    document.body.style.overflow = 'hidden'
+    const body = document.body
+    const count = Number(body.dataset.scrollLockCount || '0')
+    const nextCount = count + 1
+    body.dataset.scrollLockCount = String(nextCount)
+
+    if (nextCount === 1) {
+      body.dataset.scrollLockOriginalOverflow = body.style.overflow || ''
+      body.classList.add('modal-open')
+      body.style.overflow = 'hidden'
+    }
 
     return () => {
-      document.body.classList.remove('modal-open')
-      document.body.style.overflow = originalOverflow
+      const current = Number(body.dataset.scrollLockCount || '0')
+      const remaining = Math.max(current - 1, 0)
+      body.dataset.scrollLockCount = String(remaining)
+
+      if (remaining === 0) {
+        body.classList.remove('modal-open')
+        body.style.overflow = body.dataset.scrollLockOriginalOverflow || ''
+        delete body.dataset.scrollLockOriginalOverflow
+      }
     }
   }, [isLocked])
 }
