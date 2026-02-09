@@ -76,6 +76,58 @@ export const createWishlistItem = (data) => apiRequest('wishlist', { method: 'PO
 export const updateWishlistItem = (id, data) => apiRequest(`wishlist/${id}`, { method: 'PUT', body: JSON.stringify(data) })
 export const deleteWishlistItem = (id) => apiRequest(`wishlist/${id}`, { method: 'DELETE' })
 
+// Wishlist Image Upload
+export const uploadWishlistImage = async (id, file) => {
+  const userId = getUserId()
+  const formData = new FormData()
+  formData.append('image', file)
+  
+  console.log('📤 Uploading image for item ID:', id, 'File:', file.name, 'Size:', file.size)
+  
+  const response = await fetch(`${API_BASE}/wishlist/${id}/upload-image`, {
+    method: 'POST',
+    headers: {
+      'X-User-ID': userId || ''
+    },
+    body: formData
+  })
+  
+  if (!response.ok) {
+    const message = await response.text()
+    console.error('❌ Upload failed:', response.status, message)
+    throw new Error(message || 'Image upload failed')
+  }
+  
+  const result = await response.json()
+  console.log('✅ Image uploaded successfully:', result)
+  return result
+}
+
+// Wishlist Image Delete
+export const deleteWishlistImage = async (id) => {
+  const userId = getUserId()
+  
+  const response = await fetch(`${API_BASE}/wishlist/${id}/delete-image`, {
+    method: 'DELETE',
+    headers: {
+      'X-User-ID': userId || ''
+    }
+  })
+  
+  if (!response.ok) {
+    const message = await response.text()
+    throw new Error(message || 'Image deletion failed')
+  }
+  
+  if (response.status === 204) {
+    return null
+  }
+  
+  return response.json()
+}
+
 // Week Planner
-export const getWeekPlan = () => apiRequest('week-plan')
-export const saveWeekPlan = (data) => apiRequest('week-plan', { method: 'POST', body: JSON.stringify(data) })
+export const getCurrentWeekPlan = () => apiRequest('week-plan/current')
+export const getWeekPlan = (weekKey) => apiRequest(`week-plan?weekKey=${encodeURIComponent(weekKey)}`)
+export const saveWeekPlan = (weekKey, plan) => apiRequest('week-plan', { method: 'POST', body: JSON.stringify({ weekKey, plan }) })
+export const getWeekPlanHistory = () => apiRequest('week-plan/history')
