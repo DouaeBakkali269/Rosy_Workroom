@@ -1,4 +1,4 @@
-﻿import { useMemo, useState, useEffect } from 'react'
+import { useMemo, useState, useEffect } from 'react'
 import useLockBodyScroll from '../hooks/useLockBodyScroll'
 import ModalPortal from '../components/ModalPortal'
 import ConfirmModal from '../components/ConfirmModal'
@@ -6,13 +6,48 @@ import { getVisionGoals, createVisionGoal, updateVisionGoal, deleteVisionGoal } 
 import { useLanguage } from '../context/LanguageContext'
 
 const GOAL_TYPES = [
-  { key: 'financial', icon: '💰', label: 'Financial', desc: 'Money management, savings, debt reduction, and long-term security.' },
-  { key: 'business', icon: '💼', label: 'Business', desc: 'Career growth, entrepreneurship, and business project milestones.' },
-  { key: 'relationships', icon: '💗', label: 'Relationships', desc: 'Meaningful connection goals with partner, friends, and family.' },
-  { key: 'health_fitness', icon: '🏃‍♀️', label: 'Health & Fitness', desc: 'Health habits, fitness levels, and overall physical well-being.' },
-  { key: 'fun_recreation', icon: '🎀', label: 'Fun & Recreation', desc: 'Joyful hobbies, travel, and experiences that recharge you.' },
-  { key: 'personal', icon: '🌸', label: 'Personal', desc: 'Self-development, lifestyle upgrades, and personal habits.' },
-  { key: 'contribution', icon: '🤝', label: 'Contribution', desc: 'Giving back, helping others, and making positive impact.' }
+  {
+    key: 'financial',
+    icon: '💰',
+    label: 'Financial',
+    desc: 'Goals related to money management, income, savings, debt reduction, and building long-term financial security that makes you feel stable, supported, and in control of your numbers.'
+  },
+  {
+    key: 'business',
+    icon: '💼',
+    label: 'Business',
+    desc: 'Goals about career growth, professional achievements, entrepreneurship, and creating or managing business projects that move your work life in the direction you truly want.'
+  },
+  {
+    key: 'relationships',
+    icon: '💗',
+    label: 'Relationships',
+    desc: 'Goals focused on building meaningful connections with partners, friends, family, and nurturing the kind of loving, supportive relationships you want in your everyday life.'
+  },
+  {
+    key: 'health_fitness',
+    icon: '🏃‍♀️',
+    label: 'Health & Fitness',
+    desc: 'Goals about physical health, fitness level, movement, healthy habits, and gently improving your overall energy, strength, and well-being over time.'
+  },
+  {
+    key: 'fun_recreation',
+    icon: '🎀',
+    label: 'Fun & Recreation',
+    desc: 'Goals related to enjoyment, hobbies, travel, creative projects, and cozy experiences that bring you happiness, playfulness, creativity, and relaxation.'
+  },
+  {
+    key: 'personal',
+    icon: '🌸',
+    label: 'Personal',
+    desc: 'Goals about self-development, lifestyle, education, possessions, habits, and personal life improvements that help you feel closer to the version of yourself you want to become.'
+  },
+  {
+    key: 'contribution',
+    icon: '🤝',
+    label: 'Contribution',
+    desc: 'Goals about giving back, helping others, volunteering, donating, or making a positive impact on your community and the wider world in a way that feels gentle and aligned with you.'
+  }
 ]
 
 const TYPE_BY_KEY = Object.fromEntries(GOAL_TYPES.map((item) => [item.key, item]))
@@ -36,13 +71,27 @@ export default function VisionPage() {
   const { t } = useLanguage()
   const [goals, setGoals] = useState([])
   const [selectedType, setSelectedType] = useState('all')
+  const [typeOrder, setTypeOrder] = useState(() => {
+    const stored = localStorage.getItem('visionTypeOrder')
+    if (!stored) return GOAL_TYPES.map((t) => t.key)
+    try {
+      const parsed = JSON.parse(stored)
+      if (Array.isArray(parsed) && parsed.every((key) => TYPE_BY_KEY[key])) {
+        return parsed
+      }
+      return GOAL_TYPES.map((t) => t.key)
+    } catch {
+      return GOAL_TYPES.map((t) => t.key)
+    }
+  })
+  const [draggingType, setDraggingType] = useState(null)
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState({ isOpen: false, goalId: null, goalTitle: '' })
+  const [editingGoal, setEditingGoal] = useState(null)
   const [formData, setFormData] = useState({
     title: '',
     description: '',
-    category: 'personal',
-    icon: '✨'
+    category: 'personal'
   })
 
   useLockBodyScroll(isModalOpen || confirmDelete.isOpen)
@@ -65,18 +114,66 @@ export default function VisionPage() {
     if (!formData.title.trim() || !formData.description.trim()) return
 
     try {
-      await createVisionGoal({
+      const payload = {
         title: formData.title.trim(),
         description: formData.description.trim(),
         category: normalizeType(formData.category),
-        icon: formData.icon.trim() || '✨'
-      })
-      setFormData({ title: '', description: '', category: 'personal', icon: '✨' })
+        icon: editingGoal?.icon || '✨'
+      }
+
+      if (editingGoal) {
+        await updateVisionGoal(editingGoal.id, payload)
+      } else {
+        await createVisionGoal(payload)
+      }
+
+      setFormData({ title: '', description: '', category: 'personal' })
+      setEditingGoal(null)
       setIsModalOpen(false)
       loadGoals()
     } catch (error) {
       console.error('Failed to create vision goal:', error)
     }
+  }
+
+  function handleTypeDragStart(key) {
+    setDraggingType(key)
+  }
+
+  function handleTypeDragOver(e) {
+    e.preventDefault()
+  }
+
+  function handleTypeDrop(targetKey) {
+    if (!draggingType || draggingType === targetKey) return
+    setTypeOrder((prev) => {
+      const next = prev.filter((k) => k !== draggingType)
+      const targetIndex = next.indexOf(targetKey)
+      if (targetIndex === -1) {
+        next.push(draggingType)
+      } else {
+        next.splice(targetIndex, 0, draggingType)
+      }
+      localStorage.setItem('visionTypeOrder', JSON.stringify(next))
+      return next
+    })
+    setDraggingType(null)
+  }
+
+  function openAddModal() {
+    setEditingGoal(null)
+    setFormData({ title: '', description: '', category: 'personal' })
+    setIsModalOpen(true)
+  }
+
+  function openEditModal(goal) {
+    setEditingGoal(goal)
+    setFormData({
+      title: goal.title || '',
+      description: goal.description || '',
+      category: normalizeType(goal.category)
+    })
+    setIsModalOpen(true)
   }
 
   function openDeleteConfirm(goalId) {
@@ -125,93 +222,189 @@ export default function VisionPage() {
   }, [goals, selectedType])
 
   return (
-    <section className="page-section active vision-board-page">
-      <div className="vision-board-shell">
-        <header className="section-header">
-          <div>
-            <h2>{t('vision.title')}</h2>
-            <p className="subtitle">Tiny steps, big blooms.</p>
-          </div>
-          <button className="btn primary" onClick={() => setIsModalOpen(true)}>+ Add Goal</button>
-        </header>
+    <section className="page-section active">
+      <div className="section-header week-planner-header">
+        <div>
+          <h2>{t('vision.title')}</h2>
+          <p className="week-range">Tiny steps, big blooms for your dream life.</p>
+        </div>
+        <button
+          className="btn primary"
+          type="button"
+          onClick={openAddModal}
+        >
+          + {t('vision.addGoal')}
+        </button>
+      </div>
 
-        <div className="vision-type-tabs" role="tablist" aria-label="Goal categories">
-          <button
-            className={`vision-type-tab ${selectedType === 'all' ? 'active' : ''}`}
-            type="button"
-            onClick={() => setSelectedType('all')}
-          >
-            ✨ All
-          </button>
-          {GOAL_TYPES.map((type) => (
+      <div className="week-planner-container">
+        <div className="week-sidebar">
+          <div className="week-days">
             <button
-              key={type.key}
-              className={`vision-type-tab ${selectedType === type.key ? 'active' : ''}`}
+              className={`day-btn ${selectedType === 'all' ? 'active' : ''}`}
               type="button"
-              onClick={() => setSelectedType(type.key)}
+              onClick={() => setSelectedType('all')}
             >
-              <span>{type.icon}</span>
-              <span>{type.label}</span>
+              <span className="day-name">✨ All goals</span>
+              <span className="task-count">
+                {goals.filter((g) => !g.achieved).length} active
+              </span>
             </button>
-          ))}
-          <button
-            className={`vision-type-tab ${selectedType === 'completed' ? 'active' : ''}`}
-            type="button"
-            onClick={() => setSelectedType('completed')}
-          >
-            🌟 Completed
-          </button>
+            {typeOrder.map((key) => {
+              const type = TYPE_BY_KEY[key]
+              if (!type) return null
+              const isActive = selectedType === type.key
+              const count = goals.filter((g) => normalizeType(g.category) === type.key && !g.achieved).length
+              return (
+                <button
+                  key={type.key}
+                  className={`day-btn ${isActive ? 'active' : ''}`}
+                  type="button"
+                  draggable
+                  onDragStart={() => handleTypeDragStart(type.key)}
+                  onDragOver={handleTypeDragOver}
+                  onDrop={() => handleTypeDrop(type.key)}
+                  onClick={() => setSelectedType(type.key)}
+                >
+                  <span className="day-name">{type.label}</span>
+                  <span className="task-count">
+                    {count} goals
+                  </span>
+                </button>
+              )
+            })}
+            <button
+              className={`day-btn reflection-day ${selectedType === 'completed' ? 'active' : ''}`}
+              type="button"
+              onClick={() => setSelectedType('completed')}
+            >
+              <span className="day-name">🌟 Achieved board</span>
+              <span className="task-count">
+                {goals.filter((g) => Boolean(g.achieved)).length} achieved
+              </span>
+            </button>
+          </div>
         </div>
 
-        {selectedType !== 'all' && selectedType !== 'completed' && <p className="vision-selected-type-desc">{TYPE_BY_KEY[selectedType]?.desc}</p>}
+        <div className="day-details">
+          <div className="day-header">
+            <h3>
+              {selectedType === 'all'
+                ? 'All active goals'
+                : selectedType === 'completed'
+                  ? 'Achieved goals'
+                  : TYPE_BY_KEY[selectedType]?.label || 'Goals'}
+            </h3>
+            {selectedType !== 'completed' && selectedType !== 'all' && (
+              <div className="day-header-actions">
+                <span className="completion-rate">
+                  {
+                    goals.filter(
+                      (g) => normalizeType(g.category) === selectedType && Boolean(g.achieved)
+                    ).length
+                  } achieved · {
+                    goals.filter(
+                      (g) => normalizeType(g.category) === selectedType && !g.achieved
+                    ).length
+                  } in progress
+                </span>
+              </div>
+            )}
+          </div>
 
-        <div className="vision-goals-grid">
-          {selectedType === 'completed'
-            ? archivedGoals.length
-              ? archivedGoals.map((goal) => {
-                  const type = TYPE_BY_KEY[goal.category] || TYPE_BY_KEY.personal
-                  return (
-                    <article key={goal.id} className="vision-goal-card vision-goal-card-achieved">
-                      <div className="vision-goal-card-head">
-                        <span className="vision-goal-type-chip">{type.icon} {type.label}</span>
-                        <button className="icon-btn vision-goal-delete" onClick={() => openDeleteConfirm(goal.id)}>✕</button>
-                      </div>
-                      <h3 className="vision-goal-name">{goal.title}</h3>
-                      <p className="vision-goal-desc">{goal.description}</p>
-                      <div className="vision-goal-footer">
-                        <span className="vision-achieved-stamp">ACHIEVED 💖</span>
-                        <button className="vision-achieve-pill" type="button" onClick={() => handleToggleAchieved(goal)}>
-                          <span className="vision-achieve-check">✓</span>
-                          <span>{t('vision.markUnachieved')}</span>
-                        </button>
-                      </div>
-                      <div className="vision-achieved-date">Completed: {prettyDate(goal.achieved_at) || 'Recently'}</div>
-                    </article>
-                  )
-                })
-              : <div className="vision-empty-state">No completed goals yet. You are almost there 🌸</div>
-            : activeGoals.length
-              ? activeGoals.map((goal) => {
-                  const type = TYPE_BY_KEY[goal.category] || TYPE_BY_KEY.personal
-                  return (
-                    <article key={goal.id} className="vision-goal-card">
-                      <div className="vision-goal-card-head">
-                        <span className="vision-goal-type-chip">{type.icon} {type.label}</span>
-                        <button className="icon-btn vision-goal-delete" onClick={() => openDeleteConfirm(goal.id)}>✕</button>
-                      </div>
-                      <h3 className="vision-goal-name">{goal.title}</h3>
-                      <p className="vision-goal-desc">{goal.description}</p>
-                      <div className="vision-goal-footer">
-                        <button className="vision-achieve-pill" type="button" onClick={() => handleToggleAchieved(goal)}>
-                          <span className="vision-achieve-check">♡</span>
-                          <span>Achieved</span>
-                        </button>
-                      </div>
-                    </article>
-                  )
-                })
-              : <div className="vision-empty-state">No goals to achieve in this view yet. Add your first one 💗</div>
-          }
+          {selectedType !== 'all' && selectedType !== 'completed' && (
+            <p className="vision-selected-type-desc"><strong>{TYPE_BY_KEY[selectedType]?.desc}</strong></p>
+          )}
+
+          <div className="vision-goals-grid">
+            {selectedType === 'completed'
+              ? archivedGoals.length
+                ? archivedGoals.map((goal) => {
+                    const type = TYPE_BY_KEY[normalizeType(goal.category)] || TYPE_BY_KEY.personal
+                    return (
+                      <article key={goal.id} className="vision-goal-card vision-goal-card-achieved">
+                        <div className="vision-achieved-ribbon">
+                          <span className="vision-achieved-ribbon-text">Achieved</span>
+                        </div>
+                        <div className="vision-goal-card-head">
+                          <span className="vision-goal-type-chip">{type.label}</span>
+                          <div className="vision-goal-actions">
+                            <button
+                              className="icon-btn"
+                              type="button"
+                              onClick={() => openEditModal(goal)}
+                            >
+                              ✎
+                            </button>
+                            <button
+                              className="icon-btn vision-unachieve-icon"
+                              type="button"
+                              title={t('vision.moveBackToGoals')}
+                              aria-label={t('vision.moveBackToGoals')}
+                              onClick={() => handleToggleAchieved(goal)}
+                            >
+                              ↩
+                            </button>
+                            <button
+                              className="icon-btn vision-goal-delete"
+                              type="button"
+                              onClick={() => openDeleteConfirm(goal.id)}
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        </div>
+                        <h3 className="vision-goal-name">{goal.title}</h3>
+                        <p className="vision-goal-desc">{goal.description}</p>
+                        <div className="vision-goal-footer">
+                          <span />
+                          <span className="vision-achieved-date">Achieved: {goal.achieved_at ? new Date(goal.achieved_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : ''}</span>
+                        </div>
+                      </article>
+                    )
+                  })
+                : <div className="vision-empty-state">No achieved goals yet. You are almost there 🌸</div>
+              : activeGoals.length
+                ? activeGoals.map((goal) => {
+                    const type = TYPE_BY_KEY[normalizeType(goal.category)] || TYPE_BY_KEY.personal
+                    return (
+                      <article key={goal.id} className="vision-goal-card">
+                        <div className="vision-goal-card-head">
+                          <span className="vision-goal-type-chip">{type.label}</span>
+                          <div className="vision-goal-actions">
+                            <button
+                              className="icon-btn vision-achieve-icon"
+                              type="button"
+                              title={t('vision.markAchieved')}
+                              aria-label={t('vision.markAchieved')}
+                              onClick={() => handleToggleAchieved(goal)}
+                            >
+                              ✓
+                            </button>
+                            <button
+                              className="icon-btn"
+                              type="button"
+                              onClick={() => openEditModal(goal)}
+                            >
+                              ✎
+                            </button>
+                            <button
+                              className="icon-btn vision-goal-delete"
+                              type="button"
+                              onClick={() => openDeleteConfirm(goal.id)}
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        </div>
+                        <h3 className="vision-goal-name">{goal.title}</h3>
+                        <p className="vision-goal-desc">{goal.description}</p>
+                      </article>
+                    )
+                  })
+                : <div className="vision-empty-state">No goals to achieve in this view yet. Add your first one 💗</div>
+            }
+          </div>
         </div>
       </div>
 
@@ -251,15 +444,6 @@ export default function VisionPage() {
                     <option key={type.key} value={type.key}>{type.label}</option>
                   ))}
                 </select>
-
-                <input
-                  className="input"
-                  type="text"
-                  value={formData.icon}
-                  onChange={(e) => setFormData({ ...formData, icon: e.target.value })}
-                  placeholder={t('vision.goalIconPlaceholder')}
-                  maxLength="2"
-                />
 
                 <div className="modal-actions">
                   <button className="btn ghost" type="button" onClick={() => setIsModalOpen(false)}>{t('vision.cancel')}</button>

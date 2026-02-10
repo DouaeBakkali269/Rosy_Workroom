@@ -213,7 +213,7 @@ export default function LandingPage() {
       {/* Footer */}
       <footer className="landing-footer">
         <p className="landing-footer-text">{t('landing.footerMade')}</p>
-        <p className="landing-footer-text">© 2026 Rosy Workroom. {t('landing.footerRights')}</p>
+        <p className="landing-footer-text">© Rosy Workroom. {t('landing.footerRights')}</p>
       </footer>
     </div>
   )
