@@ -12,6 +12,8 @@ import VisionPage from './pages/VisionPage'
 import WeekPlannerPage from './pages/WeekPlannerPage'
 import WeekHistoryPage from './pages/WeekHistoryPage'
 import LoginPage from './pages/LoginPage'
+import ProfilePage from './pages/ProfilePage'
+import { LanguageProvider } from './context/LanguageContext'
 import './styles/App.css'
 
 function RequireAuth({ user, children }) {
@@ -57,54 +59,60 @@ function App() {
   }
 
   return (
-    <BrowserRouter>
-      <Routes>
-        <Route path="/" element={<LandingPage />} />
-        <Route path="/login" element={<LoginPage onLogin={handleLogin} initialMode="login" />} />
-        <Route path="/signup" element={<LoginPage onLogin={handleLogin} initialMode="signup" />} />
+    <LanguageProvider initialLanguage={user?.language}>
+      <BrowserRouter>
+        <Routes>
+          <Route path="/" element={<LandingPage />} />
+          <Route path="/login" element={<LoginPage onLogin={handleLogin} initialMode="login" />} />
+          <Route path="/signup" element={<LoginPage onLogin={handleLogin} initialMode="signup" />} />
 
-        <Route element={<AppLayout user={user} onLogout={handleLogout} />}>
-          <Route
-            path="/dashboard"
-            element={<RequireAuth user={user}><DashboardPage /></RequireAuth>}
-          />
-          <Route
-            path="/week-planner"
-            element={<RequireAuth user={user}><WeekPlannerPage /></RequireAuth>}
-          />
-          <Route
-            path="/week-planner/history"
-            element={<RequireAuth user={user}><WeekHistoryPage /></RequireAuth>}
-          />
-          <Route
-            path="/projects"
-            element={<RequireAuth user={user}><ProjectsPage /></RequireAuth>}
-          />
-          <Route
-            path="/kanban"
-            element={<RequireAuth user={user}><KanbanPage /></RequireAuth>}
-          />
-          <Route
-            path="/money"
-            element={<RequireAuth user={user}><MoneyPage /></RequireAuth>}
-          />
-          <Route
-            path="/notes"
-            element={<RequireAuth user={user}><NotesPage /></RequireAuth>}
-          />
-          <Route
-            path="/wishlist"
-            element={<RequireAuth user={user}><WishlistPage /></RequireAuth>}
-          />
-          <Route
-            path="/vision"
-            element={<RequireAuth user={user}><VisionPage /></RequireAuth>}
-          />
-        </Route>
+          <Route element={<AppLayout user={user} onLogout={handleLogout} />}>
+            <Route
+              path="/dashboard"
+              element={<RequireAuth user={user}><DashboardPage /></RequireAuth>}
+            />
+            <Route
+              path="/week-planner"
+              element={<RequireAuth user={user}><WeekPlannerPage /></RequireAuth>}
+            />
+            <Route
+              path="/week-planner/history"
+              element={<RequireAuth user={user}><WeekHistoryPage /></RequireAuth>}
+            />
+            <Route
+              path="/projects"
+              element={<RequireAuth user={user}><ProjectsPage /></RequireAuth>}
+            />
+            <Route
+              path="/kanban"
+              element={<RequireAuth user={user}><KanbanPage /></RequireAuth>}
+            />
+            <Route
+              path="/money"
+              element={<RequireAuth user={user}><MoneyPage /></RequireAuth>}
+            />
+            <Route
+              path="/notes"
+              element={<RequireAuth user={user}><NotesPage /></RequireAuth>}
+            />
+            <Route
+              path="/wishlist"
+              element={<RequireAuth user={user}><WishlistPage /></RequireAuth>}
+            />
+            <Route
+              path="/vision"
+              element={<RequireAuth user={user}><VisionPage /></RequireAuth>}
+            />
+            <Route
+              path="/profile"
+              element={<RequireAuth user={user}><ProfilePage user={user} onLogout={handleLogout} /></RequireAuth>}
+            />
+          </Route>
 
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-    </BrowserRouter>
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </BrowserRouter>
+    </LanguageProvider>
   )
 }
 

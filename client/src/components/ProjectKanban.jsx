@@ -4,12 +4,34 @@ import ModalPortal from './ModalPortal'
 import { getKanbanCards, createKanbanCard, updateKanbanCard, deleteKanbanCard, getKanbanColumns, createKanbanColumn, updateKanbanColumn, deleteKanbanColumn } from '../services/api'
 import TaskDetails from './TaskDetails'
 import ConfirmModal from './ConfirmModal'
+import { useLanguage } from '../context/LanguageContext'
 
 const DEFAULT_COLUMNS = [
   { key: 'todo', name: 'To Do', position: 1 },
   { key: 'inprogress', name: 'In Progress', position: 2 },
   { key: 'done', name: 'Done', position: 3 }
 ]
+
+function titleFromStatusKey(key) {
+  if (key === 'inprogress') return 'In Progress'
+  return String(key || '')
+    .replace(/[_-]+/g, ' ')
+    .replace(/\b\w/g, (char) => char.toUpperCase())
+}
+
+function mergeWithDefaultColumns(inputColumns) {
+  const byKey = new Map()
+  for (const col of Array.isArray(inputColumns) ? inputColumns : []) {
+    if (!col?.key) continue
+    byKey.set(col.key, col)
+  }
+  for (const fallback of DEFAULT_COLUMNS) {
+    if (!byKey.has(fallback.key)) {
+      byKey.set(fallback.key, fallback)
+    }
+  }
+  return [...byKey.values()].sort((a, b) => (a.position || 0) - (b.position || 0))
+}
 
 function stripHtml(value) {
   if (!value) return ''
@@ -26,6 +48,7 @@ function priorityRank(value) {
 }
 
 export default function ProjectKanban({ project, onBack }) {
+  const { t } = useLanguage()
   const [cards, setCards] = useState([])
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [draggedCard, setDraggedCard] = useState(null)
@@ -38,6 +61,7 @@ export default function ProjectKanban({ project, onBack }) {
   const [editingColumnKey, setEditingColumnKey] = useState(null)
   const [editingColumnName, setEditingColumnName] = useState('')
   const [showAddColumn, setShowAddColumn] = useState(false)
+  const [showMembersList, setShowMembersList] = useState(false)
   const [confirmDeleteColumn, setConfirmDeleteColumn] = useState({ isOpen: false, key: null, name: '' })
   const [formData, setFormData] = useState({
     title: '',
@@ -63,9 +87,10 @@ export default function ProjectKanban({ project, onBack }) {
     try {
       const data = await getKanbanColumns()
       if (Array.isArray(data) && data.length) {
-        setColumns(data)
-        if (!data.some(col => col.key === formData.status)) {
-          setFormData((prev) => ({ ...prev, status: data[0].key }))
+        const merged = mergeWithDefaultColumns(data)
+        setColumns(merged)
+        if (!merged.some(col => col.key === formData.status)) {
+          setFormData((prev) => ({ ...prev, status: merged[0].key }))
         }
       } else {
         setColumns(DEFAULT_COLUMNS)
@@ -117,7 +142,7 @@ export default function ProjectKanban({ project, onBack }) {
     setConfirmDeleteColumn({
       isOpen: true,
       key,
-      name: column?.name || 'this column'
+      name: column?.name || t('kanban.thisColumn')
     })
   }
 
@@ -226,25 +251,59 @@ export default function ProjectKanban({ project, onBack }) {
     loadCards()
   }
 
-  const columnsWithCards = columns.map(column => ({
+  const cardStatuses = [...new Set(cards.map((card) => card.status).filter(Boolean))]
+  const missingStatusColumns = cardStatuses
+    .filter((statusKey) => !columns.some((column) => column.key === statusKey))
+    .map((statusKey, index) => ({
+      key: statusKey,
+      name: titleFromStatusKey(statusKey),
+      position: (columns[columns.length - 1]?.position || columns.length) + index + 1
+    }))
+  const visibleColumns = [...columns, ...missingStatusColumns]
+
+  const columnsWithCards = visibleColumns.map(column => ({
     column,
     cards: cards.filter(card => card.status === column.key)
   }))
+  const priorityLabelMap = {
+    high: t('task.priorityHigh'),
+    medium: t('task.priorityMedium'),
+    low: t('task.priorityLow')
+  }
+  const deleteColumnMessage = t('kanban.deleteColumnMessage').replace('{column}', confirmDeleteColumn.name)
 
   return (
     <section className="page-section active">
       <div className="section-header">
-        <button className="btn ghost" onClick={onBack}>← Back to Projects</button>
-        <h2>{project.name} - Kanban Board</h2>
+        <button className="btn ghost" onClick={onBack}>← {t('projects.backToProjects')}</button>
+        <h2>{project.name} - {t('kanban.title')}</h2>
       </div>
       
       <div className="project-actions">
         <div className="kanban-action-group">
           <div className="kanban-action-row">
-            <button className="btn primary" onClick={() => setIsModalOpen(true)}>Add Task</button>
+            <button className="btn primary" onClick={() => setIsModalOpen(true)}>{t('kanban.addTask')}</button>
+            <div className="kanban-action-popover">
+              <button className="btn ghost" type="button" onClick={() => setShowMembersList((value) => !value)}>
+                {t('kanban.members')}
+              </button>
+              {showMembersList && (
+                <div className="kanban-column-add-popover">
+                  <div className="project-members-list">
+                    {(project.members || []).length === 0 ? (
+                      <p className="history-empty">{t('kanban.noMembers')}</p>
+                    ) : (
+                      project.members.map((member) => (
+                        <div key={member} className="project-member-row">{member}</div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
             <div className="kanban-action-popover">
               <button className="btn ghost" type="button" onClick={() => setShowAddColumn((value) => !value)}>
-                Add column
+                {t('kanban.addColumn')}
               </button>
               {showAddColumn && (
                 <div className="kanban-column-add-popover">
@@ -254,7 +313,7 @@ export default function ProjectKanban({ project, onBack }) {
                       type="text"
                       value={newColumnName}
                       onChange={(e) => setNewColumnName(e.target.value)}
-                      placeholder="Column name"
+                      placeholder={t('kanban.columnNamePlaceholder')}
                     />
                     <button
                       className="btn ghost"
@@ -264,7 +323,7 @@ export default function ProjectKanban({ project, onBack }) {
                         setShowAddColumn(false)
                       }}
                     >
-                      Add
+                      {t('kanban.addColumnButton')}
                     </button>
                   </div>
                 </div>
@@ -279,33 +338,33 @@ export default function ProjectKanban({ project, onBack }) {
           <div className="modal-overlay" onClick={() => setIsModalOpen(false)}>
             <div className="modal" onClick={(e) => e.stopPropagation()}>
               <div className="modal-header">
-                <h3 className="modal-title">Add Task</h3>
+                <h3 className="modal-title">{t('kanban.addTaskTitle')}</h3>
                 <button className="modal-close" onClick={() => setIsModalOpen(false)}>✕</button>
               </div>
               <form className="modal-body" onSubmit={handleSubmit}>
                 <label className="field">
-                  <span className="field-label">Card title</span>
+                  <span className="field-label">{t('kanban.cardTitle')}</span>
                   <input
                     className="input"
                     type="text"
                     value={formData.title}
                     onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                    placeholder="Card title"
+                    placeholder={t('kanban.cardTitle')}
                     required
                   />
                 </label>
                 <label className="field">
-                  <span className="field-label">Label</span>
+                  <span className="field-label">{t('kanban.label')}</span>
                   <input
                     className="input"
                     type="text"
                     value={formData.label}
                     onChange={(e) => setFormData({ ...formData, label: e.target.value })}
-                    placeholder="Label"
+                    placeholder={t('kanban.label')}
                   />
                 </label>
                 <label className="field">
-                  <span className="field-label">Status</span>
+                  <span className="field-label">{t('kanban.status')}</span>
                   <select
                     className="input"
                     value={formData.status}
@@ -317,7 +376,7 @@ export default function ProjectKanban({ project, onBack }) {
                   </select>
                 </label>
                 <label className="field">
-                  <span className="field-label">Due date</span>
+                  <span className="field-label">{t('kanban.dueDate')}</span>
                   <input
                     className="input"
                     type="date"
@@ -326,18 +385,18 @@ export default function ProjectKanban({ project, onBack }) {
                   />
                 </label>
                 <label className="field">
-                  <span className="field-label">Description (optional)</span>
+                  <span className="field-label">{t('kanban.descriptionOptional')}</span>
                   <textarea
                     className="input"
                     rows={3}
                     value={formData.description}
                     onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                    placeholder="Add a short description"
+                    placeholder={t('kanban.descriptionPlaceholder')}
                   />
                 </label>
                 <div className="modal-actions">
-                  <button className="btn ghost" type="button" onClick={() => setIsModalOpen(false)}>Cancel</button>
-                  <button className="btn primary" type="submit">Add Task</button>
+                  <button className="btn ghost" type="button" onClick={() => setIsModalOpen(false)}>{t('common.cancel')}</button>
+                  <button className="btn primary" type="submit">{t('kanban.addTask')}</button>
                 </div>
               </form>
             </div>
@@ -348,6 +407,7 @@ export default function ProjectKanban({ project, onBack }) {
       {selectedCard && (
         <TaskDetails
           card={selectedCard}
+          collaborators={Array.isArray(project.members) ? project.members : []}
           onClose={() => setSelectedCard(null)}
           onUpdate={() => {
             loadCards()
@@ -409,7 +469,7 @@ export default function ProjectKanban({ project, onBack }) {
                   type="button"
                   onClick={() => handleDeleteColumn(column.key)}
                   disabled={columns.length <= 1}
-                  title="Delete column"
+                  title={t('kanban.deleteColumnAria')}
                 >
                   ✕
                 </button>
@@ -465,10 +525,17 @@ export default function ProjectKanban({ project, onBack }) {
                     onClick={() => handleCardClick(card)}
                   >
                     <div className="card-header-row">
-                      <div className="card-label">{card.label || 'Task'}</div>
-                      {card.priority && (
-                        <span className={`card-priority ${card.priority}`}>{card.priority}</span>
-                      )}
+                      <div className="card-label">{card.label || t('kanban.taskFallback')}</div>
+                      <div className="card-header-meta">
+                        {card.priority && (
+                          <span className={`card-priority ${card.priority}`}>{priorityLabelMap[card.priority] || card.priority}</span>
+                        )}
+                        {Array.isArray(card.assignees) && card.assignees.length > 0 && (
+                          <span className="card-assignees-hint" title={card.assignees.join(', ')}>
+                            {card.assignees.length === 1 ? card.assignees[0] : `${card.assignees.length} ${t('kanban.membersCount')}`}
+                          </span>
+                        )}
+                      </div>
                     </div>
                     <div className="card-title">{card.title}</div>
                     {card.tags?.length > 1 && (
@@ -490,13 +557,13 @@ export default function ProjectKanban({ project, onBack }) {
                               handleCardClick(card)
                             }}
                           >
-                            Read more...
+                            {t('kanban.readMore')}
                           </button>
                         )}
                       </div>
                     )}
                     <div className="card-meta">
-                      {card.dueDate && `Due ${card.dueDate}`}
+                      {card.dueDate && `${t('kanban.duePrefix')} ${card.dueDate}`}
                     </div>
                     <div className="kanban-mobile-actions" onClick={(e) => e.stopPropagation()}>
                       {columns.map(col => (
@@ -521,8 +588,8 @@ export default function ProjectKanban({ project, onBack }) {
         isOpen={confirmDeleteColumn.isOpen}
         onConfirm={handleConfirmDeleteColumn}
         onCancel={() => setConfirmDeleteColumn({ isOpen: false, key: null, name: '' })}
-        title="Delete column"
-        message={`Delete "${confirmDeleteColumn.name}"? Cards in this column will move to "To Do".`}
+        title={t('kanban.deleteColumnTitle')}
+        message={deleteColumnMessage}
       />
     </section>
   )

@@ -3,16 +3,12 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import useLockBodyScroll from '../hooks/useLockBodyScroll'
 import ConfirmModal from '../components/ConfirmModal'
 import { getCurrentWeekPlan, getWeekPlan, getWeekPlanHistory, saveWeekPlan } from '../services/api'
+import { useLanguage } from '../context/LanguageContext'
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
-const UI_DAYS = [...DAYS, 'Weekly Reflection']
+const UI_DAYS = [...DAYS, 'reflection']
 const TIME_BLOCKS = ['anytime', 'morning', 'afternoon', 'evening', 'night']
-const BLOCK_LABELS = { anytime: 'Anytime', morning: 'Morning', afternoon: 'Afternoon', evening: 'Evening', night: 'Night' }
-const PRIORITIES = [
-  { value: 'high', label: 'High' },
-  { value: 'medium', label: 'Medium' },
-  { value: 'low', label: 'Low' }
-]
+const PRIORITIES = ['high', 'medium', 'low']
 const DEFAULT_REFLECTION = { wins: '', lessons: '', nextWeek: '' }
 
 const createEmptyWeekPlan = () => DAYS.map(day => ({ day, tasks: [], notes: '', focus: '' }))
@@ -48,22 +44,22 @@ function normalizeTaskBlock(block) {
   return TIME_BLOCKS.includes(block) ? block : 'anytime'
 }
 
-function formatWeekRange(weekKey) {
+function formatWeekRange(weekKey, locale) {
   if (!weekKey || !isWeekKey(weekKey)) return weekKey || ''
   const [year, month, day] = weekKey.split('-').map(Number)
   const start = new Date(year, month - 1, day)
   const end = new Date(start)
   end.setDate(start.getDate() + 6)
-  const startLabel = start.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
-  const endLabel = end.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+  const startLabel = start.toLocaleDateString(locale, { month: 'short', day: 'numeric' })
+  const endLabel = end.toLocaleDateString(locale, { month: 'short', day: 'numeric', year: 'numeric' })
   return `${startLabel} - ${endLabel}`
 }
 
-function formatWeekStamp(value) {
+function formatWeekStamp(value, locale) {
   if (!value) return ''
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return ''
-  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+  return date.toLocaleDateString(locale, { month: 'short', day: 'numeric' })
 }
 
 function getTodayIndex() {
@@ -71,6 +67,7 @@ function getTodayIndex() {
 }
 
 export default function WeekPlannerPage() {
+  const { t, langKey } = useLanguage()
   const [weekPlan, setWeekPlan] = useState(createEmptyWeekPlan())
   const [selectedDay, setSelectedDay] = useState(0)
   const [taskInput, setTaskInput] = useState('')
@@ -226,7 +223,7 @@ export default function WeekPlannerPage() {
       isOpen: true,
       dayIndex,
       taskId,
-      taskText: task?.text || 'this task'
+      taskText: task?.text || t('week.thisTask')
     })
   }
 
@@ -295,9 +292,35 @@ export default function WeekPlannerPage() {
   }
 
 
+  const localeByLang = { en: 'en-US', fr: 'fr-FR', de: 'de-DE' }
+  const locale = localeByLang[langKey] || 'en-US'
+  const dayLabelMap = {
+    Monday: t('week.days.monday'),
+    Tuesday: t('week.days.tuesday'),
+    Wednesday: t('week.days.wednesday'),
+    Thursday: t('week.days.thursday'),
+    Friday: t('week.days.friday'),
+    Saturday: t('week.days.saturday'),
+    Sunday: t('week.days.sunday'),
+    reflection: t('week.reflection')
+  }
+  const dayLabel = (day) => dayLabelMap[day] || day
+  const blockLabelMap = {
+    anytime: t('week.block.anytime'),
+    morning: t('week.block.morning'),
+    afternoon: t('week.block.afternoon'),
+    evening: t('week.block.evening'),
+    night: t('week.block.night')
+  }
+  const priorityLabelMap = {
+    high: t('week.priority.high'),
+    medium: t('week.priority.medium'),
+    low: t('week.priority.low')
+  }
+  const deleteMessage = t('week.deleteTaskMessage').replace('{task}', confirmDelete.taskText)
   const currentDay = weekPlan[selectedDay] || weekPlan[0]
   const visibleHistory = weekHistory
-  const activeWeekLabel = formatWeekRange(activeWeekKey || currentWeekKey)
+  const activeWeekLabel = formatWeekRange(activeWeekKey || currentWeekKey, locale)
   const showingCurrentWeek = activeWeekKey === currentWeekKey
   const maxInlineWeeks = 3
   const inlineHistory = visibleHistory.slice(0, maxInlineWeeks)
@@ -306,14 +329,14 @@ export default function WeekPlannerPage() {
     <section className="page-section active">
       <div className="section-header week-planner-header">
         <div>
-          <h2>Weekly Planner</h2>
+          <h2>{t('week.title')}</h2>
           <p className="week-range">{activeWeekLabel}</p>
         </div>
         {showingCurrentWeek ? (
-          <span className="week-pill">Current week</span>
+          <span className="week-pill">{t('week.currentWeek')}</span>
         ) : (
           <button className="btn ghost" onClick={() => loadWeekByKey(currentWeekKey)}>
-            Back to current
+            {t('week.backToCurrent')}
           </button>
         )}
       </div>
@@ -327,10 +350,10 @@ export default function WeekPlannerPage() {
                 className={`day-btn ${index === DAYS.length ? 'reflection-day' : ''} ${selectedDay === index ? 'active' : ''}`}
                 onClick={() => setSelectedDay(index)}
               >
-                <span className="day-name">{day}</span>
+                <span className="day-name">{dayLabel(day)}</span>
                 {index < DAYS.length && (
                   <span className="task-count">
-                    {weekPlan[index].tasks.filter(t => !t.done).length} tasks
+                    {weekPlan[index].tasks.filter(t => !t.done).length} {t('week.tasksCount')}
                   </span>
                 )}
               </button>
@@ -339,13 +362,13 @@ export default function WeekPlannerPage() {
 
           <div className="week-history">
             <div className="history-header">
-              <h4>History</h4>
+              <h4>{t('week.history')}</h4>
               <span className="history-count">{visibleHistory.length}</span>
             </div>
 
             <div className="history-list">
               {visibleHistory.length === 0 ? (
-                <p className="history-empty">No past weeks yet.</p>
+                <p className="history-empty">{t('week.noPastWeeks')}</p>
               ) : (
                 inlineHistory.map(week => (
                   <button
@@ -353,12 +376,12 @@ export default function WeekPlannerPage() {
                     className={`history-item ${activeWeekKey === week.week_key ? 'active' : ''}`}
                     onClick={() => loadWeekByKey(week.week_key)}
                   >
-                    <span className="history-range">{formatWeekRange(week.week_key)}</span>
+                    <span className="history-range">{formatWeekRange(week.week_key, locale)}</span>
                     {week.week_key === currentWeekKey && (
-                      <span className="history-tag">Current</span>
+                      <span className="history-tag">{t('week.current')}</span>
                     )}
                     <span className="history-meta">
-                      Updated {formatWeekStamp(week.updated_at || week.created_at)}
+                      {t('week.updated')} {formatWeekStamp(week.updated_at || week.created_at, locale)}
                     </span>
                   </button>
                 ))
@@ -366,7 +389,7 @@ export default function WeekPlannerPage() {
             </div>
             {visibleHistory.length > maxInlineWeeks && (
               <button className="btn ghost history-view-all" onClick={viewAllHistory}>
-                View all history
+                {t('week.viewAllHistory')}
               </button>
             )}
           </div>
@@ -374,36 +397,36 @@ export default function WeekPlannerPage() {
 
         <div className="day-details">
           <div className="day-header">
-            <h3>{selectedDay < DAYS.length ? currentDay.day : 'Weekly Reflection'}</h3>
+            <h3>{selectedDay < DAYS.length ? dayLabel(currentDay.day) : t('week.reflection')}</h3>
             <div className="day-header-actions">
               {selectedDay < DAYS.length ? (
                 <>
                   <span className="completion-rate">
-                    {currentDay.tasks.filter(t => t.done).length} of {currentDay.tasks.length} done
+                    {currentDay.tasks.filter(t => t.done).length} {t('week.doneOf')} {currentDay.tasks.length} {t('week.doneLabel')}
                   </span>
                   <button
                     className="btn ghost"
                     onClick={carryOverUnfinished}
-                    title="Move all unfinished tasks to tomorrow"
-                    aria-label="Move all unfinished tasks to tomorrow"
+                    title={t('week.carryOverTitle')}
+                    aria-label={t('week.carryOverTitle')}
                   >
-                    Carry over
+                    {t('week.carryOver')}
                   </button>
                 </>
               ) : (
-                <span className="completion-rate">End-of-week summary</span>
+                <span className="completion-rate">{t('week.endOfWeekSummary')}</span>
               )}
             </div>
           </div>
 
           {selectedDay < DAYS.length && (
             <div className="day-section">
-              <h4>Daily Focus Goal</h4>
+              <h4>{t('week.dailyFocusGoal')}</h4>
               <textarea
                 className="input focus-input"
                 value={currentDay.focus}
                 onChange={(e) => updateFocus(selectedDay, e.target.value)}
-                placeholder="Main win for today..."
+                placeholder={t('week.focusPlaceholder')}
                 rows="2"
               />
             </div>
@@ -411,7 +434,7 @@ export default function WeekPlannerPage() {
 
           {selectedDay < DAYS.length ? (
             <div className="day-section">
-              <h4>Daily Tasks</h4>
+              <h4>{t('week.dailyTasks')}</h4>
               <div className="task-input-group">
                 <input
                   className="input"
@@ -419,7 +442,7 @@ export default function WeekPlannerPage() {
                   value={taskInput}
                   onChange={(e) => setTaskInput(e.target.value)}
                   onKeyDown={(e) => e.key === 'Enter' && addTask()}
-                  placeholder="Add a task..."
+                  placeholder={t('week.taskPlaceholder')}
                 />
                 <select
                   className="input task-select"
@@ -427,7 +450,7 @@ export default function WeekPlannerPage() {
                   onChange={(e) => setTaskBlock(e.target.value)}
                 >
                   {TIME_BLOCKS.map((block) => (
-                    <option key={block} value={block}>{BLOCK_LABELS[block]}</option>
+                    <option key={block} value={block}>{blockLabelMap[block]}</option>
                   ))}
                 </select>
                 <div className="priority-select">
@@ -437,16 +460,16 @@ export default function WeekPlannerPage() {
                     value={taskPriority}
                     onChange={(e) => setTaskPriority(e.target.value)}
                   >
-                  {PRIORITIES.map((priority) => (
-                    <option key={priority.value} value={priority.value}>{priority.label}</option>
-                  ))}
+                    {PRIORITIES.map((priority) => (
+                      <option key={priority} value={priority}>{priorityLabelMap[priority]}</option>
+                    ))}
                   </select>
                 </div>
-                <button className="btn primary" onClick={addTask}>Add</button>
+                <button className="btn primary" onClick={addTask}>{t('week.addTaskButton')}</button>
               </div>
 
               {currentDay.tasks.length === 0 ? (
-                <p className="history-empty">No tasks yet for this day.</p>
+                <p className="history-empty">{t('week.noTasksDay')}</p>
               ) : (
                 TIME_BLOCKS.map((block) => {
                   const blockTasks = currentDay.tasks.filter(task => normalizeTaskBlock(task.block) === block)
@@ -454,7 +477,7 @@ export default function WeekPlannerPage() {
                   return (
                     <div key={block} className="task-block">
                       <div className="task-block-header">
-                        <h5>{BLOCK_LABELS[block]}</h5>
+                        <h5>{blockLabelMap[block]}</h5>
                         <span>{blockTasks.length}</span>
                       </div>
                       <ul className="task-list">
@@ -469,7 +492,7 @@ export default function WeekPlannerPage() {
                             <span className={`priority-dot ${task.priority || 'medium'}`}></span>
                             <span className="task-text">{task.text}</span>
                             <span className={`priority-label ${task.priority || 'medium'}`}>
-                              {(task.priority || 'medium')}
+                              {priorityLabelMap[task.priority || 'medium']}
                             </span>
                             <div className="task-actions-inline">
                               <select
@@ -478,7 +501,7 @@ export default function WeekPlannerPage() {
                                 onChange={(e) => updateTaskPriority(selectedDay, task.id, e.target.value)}
                               >
                                 {PRIORITIES.map((priority) => (
-                                  <option key={priority.value} value={priority.value}>{priority.label}</option>
+                                  <option key={priority} value={priority}>{priorityLabelMap[priority]}</option>
                                 ))}
                               </select>
                               <select
@@ -487,7 +510,7 @@ export default function WeekPlannerPage() {
                                 onChange={(e) => moveTask(selectedDay, task.id, Number(e.target.value))}
                               >
                                 {DAYS.map((day, index) => (
-                                  <option key={day} value={index}>{day}</option>
+                                  <option key={day} value={index}>{dayLabel(day)}</option>
                                 ))}
                               </select>
                               <button
@@ -507,35 +530,35 @@ export default function WeekPlannerPage() {
             </div>
           ) : (
             <div className="day-section">
-              <h4>Weekly Reflection</h4>
+              <h4>{t('week.reflectionTitle')}</h4>
               <div className="reflection-grid">
                 <div>
-                  <label className="reflection-label">Wins</label>
+                  <label className="reflection-label">{t('week.reflectionWins')}</label>
                   <textarea
                     className="input"
                     value={weekReflection.wins}
                     onChange={(e) => updateReflection('wins', e.target.value)}
-                    placeholder="What went well this week?"
+                    placeholder={t('week.reflectionWinsPlaceholder')}
                     rows="4"
                   />
                 </div>
                 <div>
-                  <label className="reflection-label">Lessons</label>
+                  <label className="reflection-label">{t('week.reflectionLessons')}</label>
                   <textarea
                     className="input"
                     value={weekReflection.lessons}
                     onChange={(e) => updateReflection('lessons', e.target.value)}
-                    placeholder="What did you learn?"
+                    placeholder={t('week.reflectionLessonsPlaceholder')}
                     rows="4"
                   />
                 </div>
                 <div>
-                  <label className="reflection-label">Next Week</label>
+                  <label className="reflection-label">{t('week.reflectionNextWeek')}</label>
                   <textarea
                     className="input"
                     value={weekReflection.nextWeek}
                     onChange={(e) => updateReflection('nextWeek', e.target.value)}
-                    placeholder="What do you want to focus on next week?"
+                    placeholder={t('week.reflectionNextWeekPlaceholder')}
                     rows="4"
                   />
                 </div>
@@ -545,12 +568,12 @@ export default function WeekPlannerPage() {
 
           {selectedDay < DAYS.length && (
             <div className="day-section">
-              <h4>Notes</h4>
+              <h4>{t('week.notesTitle')}</h4>
               <textarea
                 className="input"
                 value={currentDay.notes}
                 onChange={(e) => updateNotes(selectedDay, e.target.value)}
-                placeholder="Add notes for this day..."
+                placeholder={t('week.notesPlaceholder')}
                 rows="5"
               />
             </div>
@@ -558,13 +581,13 @@ export default function WeekPlannerPage() {
 
         </div>
       </div>
-      {isLoading && <p className="week-loading">Loading your planner...</p>}
+      {isLoading && <p className="week-loading">{t('week.loading')}</p>}
       <ConfirmModal
         isOpen={confirmDelete.isOpen}
         onConfirm={confirmDeleteTask}
         onCancel={() => setConfirmDelete({ isOpen: false, dayIndex: null, taskId: null, taskText: '' })}
-        title="Delete task"
-        message={`Are you sure you want to delete "${confirmDelete.taskText}"? This action cannot be undone.`}
+        title={t('week.deleteTaskTitle')}
+        message={deleteMessage}
       />
     </section>
   )

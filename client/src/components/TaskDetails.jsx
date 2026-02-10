@@ -3,12 +3,9 @@ import useLockBodyScroll from '../hooks/useLockBodyScroll'
 import ModalPortal from './ModalPortal'
 import { updateKanbanCard, deleteKanbanCard } from '../services/api'
 import ConfirmModal from './ConfirmModal'
+import { useLanguage } from '../context/LanguageContext'
 
-const PRIORITY_OPTIONS = [
-  { value: 'low', label: 'Low' },
-  { value: 'medium', label: 'Medium' },
-  { value: 'high', label: 'High' }
-]
+const PRIORITY_OPTIONS = ['low', 'medium', 'high']
 
 function escapeHtml(value) {
   return value
@@ -54,13 +51,19 @@ function buildLabelFromTags(tags) {
   return tags[0] || ''
 }
 
-export default function TaskDetails({ card, onClose, onUpdate, onRefresh }) {
+function normalizeAssignees(card) {
+  return Array.isArray(card.assignees) ? card.assignees : []
+}
+
+export default function TaskDetails({ card, collaborators = [], onClose, onUpdate, onRefresh }) {
+  const { t } = useLanguage()
   const [title, setTitle] = useState(card.title)
   const [description, setDescription] = useState(card.description || '')
   const [descriptionHtml, setDescriptionHtml] = useState(normalizeDescriptionHtml(card.description || ''))
   const [dueDate, setDueDate] = useState(card.dueDate || '')
   const [tags, setTags] = useState(normalizeTags(card))
   const [priority, setPriority] = useState(card.priority || 'medium')
+  const [assignees, setAssignees] = useState(normalizeAssignees(card))
   const [checklistGroups, setChecklistGroups] = useState(normalizeChecklistGroups(card))
   const [checklistInputs, setChecklistInputs] = useState({})
   const [newChecklistName, setNewChecklistName] = useState('')
@@ -78,6 +81,7 @@ export default function TaskDetails({ card, onClose, onUpdate, onRefresh }) {
   const [showAttachments, setShowAttachments] = useState(false)
   const [newTag, setNewTag] = useState('')
   const [showPriorityMenu, setShowPriorityMenu] = useState(false)
+  const [showMembersMenu, setShowMembersMenu] = useState(false)
   const [showFormatToolbar, setShowFormatToolbar] = useState(false)
   const [confirmState, setConfirmState] = useState({
     isOpen: false,
@@ -90,6 +94,11 @@ export default function TaskDetails({ card, onClose, onUpdate, onRefresh }) {
   })
   const descriptionRef = useRef(null)
   const dateInputRef = useRef(null)
+  const priorityLabelMap = {
+    low: t('task.priorityLow'),
+    medium: t('task.priorityMedium'),
+    high: t('task.priorityHigh')
+  }
 
   useLockBodyScroll(true)
 
@@ -100,6 +109,7 @@ export default function TaskDetails({ card, onClose, onUpdate, onRefresh }) {
     setDueDate(card.dueDate || '')
     setTags(normalizeTags(card))
     setPriority(card.priority || 'medium')
+    setAssignees(normalizeAssignees(card))
     setChecklistGroups(normalizeChecklistGroups(card))
     setAttachments(card.attachments || [])
     setChecklistInputs({})
@@ -115,6 +125,7 @@ export default function TaskDetails({ card, onClose, onUpdate, onRefresh }) {
     setShowChecklist(false)
     setShowAttachments(false)
     setShowPriorityMenu(false)
+    setShowMembersMenu(false)
     setShowFormatToolbar(false)
     setNewTag('')
     setConfirmState({
@@ -136,6 +147,7 @@ export default function TaskDetails({ card, onClose, onUpdate, onRefresh }) {
     try {
       const nextTags = overrides.tags ?? tags
       const nextPriority = overrides.priority ?? priority
+      const nextAssignees = overrides.assignees ?? assignees
       const nextChecklistGroups = overrides.checklistGroups ?? checklistGroups
       const nextAttachments = overrides.attachments ?? attachments
       const nextDueDate = overrides.dueDate ?? dueDate
@@ -149,6 +161,7 @@ export default function TaskDetails({ card, onClose, onUpdate, onRefresh }) {
         checklistGroups: nextChecklistGroups,
         tags: nextTags,
         priority: nextPriority,
+        assignees: nextAssignees,
         attachments: nextAttachments
       })
       if (onRefresh) {
@@ -197,8 +210,8 @@ export default function TaskDetails({ card, onClose, onUpdate, onRefresh }) {
     setConfirmState({
       isOpen: true,
       action: 'task',
-      title: 'Delete task',
-      message: 'Are you sure you want to delete this task? This action cannot be undone.',
+      title: t('task.deleteTask'),
+      message: t('task.deleteTaskMessage'),
       groupId: null,
       itemId: null,
       attachmentId: null
@@ -250,8 +263,8 @@ export default function TaskDetails({ card, onClose, onUpdate, onRefresh }) {
     setConfirmState({
       isOpen: true,
       action: 'checklist-item',
-      title: 'Delete checklist item',
-      message: `Delete "${item.text}"? This action cannot be undone.`,
+      title: t('task.deleteChecklistItem'),
+      message: t('task.deleteChecklistItemMessage').replace('{item}', item.text),
       groupId,
       itemId: item.id,
       attachmentId: null
@@ -296,8 +309,8 @@ export default function TaskDetails({ card, onClose, onUpdate, onRefresh }) {
     setConfirmState({
       isOpen: true,
       action: 'checklist-group',
-      title: 'Delete checklist',
-      message: `Delete "${group.name}"? This will remove all items in it.`,
+      title: t('task.deleteChecklistGroupTitle'),
+      message: t('task.deleteChecklistGroupMessage').replace('{group}', group.name),
       groupId: group.id,
       itemId: null,
       attachmentId: null
@@ -392,12 +405,21 @@ export default function TaskDetails({ card, onClose, onUpdate, onRefresh }) {
     await handleSave({ attachments: updatedAttachments })
   }
 
+  async function toggleAssignee(member) {
+    const exists = assignees.includes(member)
+    const updated = exists
+      ? assignees.filter((item) => item !== member)
+      : [...assignees, member]
+    setAssignees(updated)
+    await handleSave({ assignees: updated })
+  }
+
   function handleRemoveAttachment(attachment) {
     setConfirmState({
       isOpen: true,
       action: 'attachment',
-      title: 'Delete attachment',
-      message: `Delete "${attachment.label || attachment.url}"? This action cannot be undone.`,
+      title: t('task.deleteAttachmentTitle'),
+      message: t('task.deleteAttachmentMessage').replace('{attachment}', attachment.label || attachment.url),
       groupId: null,
       itemId: null,
       attachmentId: attachment.id
@@ -442,7 +464,7 @@ export default function TaskDetails({ card, onClose, onUpdate, onRefresh }) {
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             onBlur={() => handleSave({ title })}
-            placeholder="Task title..."
+            placeholder={t('task.titlePlaceholder')}
           />
 
 
@@ -450,7 +472,7 @@ export default function TaskDetails({ card, onClose, onUpdate, onRefresh }) {
           <div className="task-actions">
             <div className="task-action-group">
               <button className="task-action-btn" type="button" onClick={() => setShowTags((value) => !value)}>
-                Tags
+                {t('task.tags')}
               </button>
               {showTags && (
                 <div className="task-action-menu">
@@ -467,7 +489,7 @@ export default function TaskDetails({ card, onClose, onUpdate, onRefresh }) {
                           setShowTags(false)
                         }
                       }}
-                      placeholder="Add a tag"
+                      placeholder={t('task.addTagPlaceholder')}
                     />
                     <button
                       className="btn ghost"
@@ -477,7 +499,7 @@ export default function TaskDetails({ card, onClose, onUpdate, onRefresh }) {
                         setShowTags(false)
                       }}
                     >
-                      Add
+                      {t('common.add')}
                     </button>
                   </div>
                 </div>
@@ -488,35 +510,58 @@ export default function TaskDetails({ card, onClose, onUpdate, onRefresh }) {
               type="button"
               onClick={() => dateInputRef.current?.showPicker?.() || dateInputRef.current?.click()}
             >
-              Dates
+              {t('task.dates')}
             </button>
             <button className="task-action-btn" type="button" onClick={() => setShowChecklist((value) => !value)}>
-              Checklist
+              {t('task.checklist')}
             </button>
             <div className="task-action-group">
               <button className="task-action-btn" type="button" onClick={() => setShowPriorityMenu((value) => !value)}>
-                Priority
+                {t('task.priority')}
               </button>
               {showPriorityMenu && (
                 <div className="task-action-menu">
                   {PRIORITY_OPTIONS.map(option => (
                     <button
-                      key={option.value}
+                      key={option}
                       type="button"
                       onClick={async () => {
-                        setPriority(option.value)
+                        setPriority(option)
                         setShowPriorityMenu(false)
-                        await handleSave({ priority: option.value })
+                        await handleSave({ priority: option })
                       }}
                     >
-                      {option.label}
+                      {priorityLabelMap[option] || option}
                     </button>
                   ))}
                 </div>
               )}
             </div>
+            <div className="task-action-group">
+              <button className="task-action-btn" type="button" onClick={() => setShowMembersMenu((value) => !value)}>
+                {t('task.members')}
+              </button>
+              {showMembersMenu && (
+                <div className="task-action-menu task-members-menu">
+                  {collaborators.length === 0 ? (
+                    <div className="task-members-empty">{t('task.noCollaborators')}</div>
+                  ) : (
+                    collaborators.map((member) => (
+                      <label key={member} className="task-member-option">
+                        <input
+                          type="checkbox"
+                          checked={assignees.includes(member)}
+                          onChange={() => toggleAssignee(member)}
+                        />
+                        <span>{member}</span>
+                      </label>
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
             <button className="task-action-btn" type="button" onClick={() => setShowAttachments((value) => !value)}>
-              Attachments
+              {t('task.attachments')}
             </button>
           </div>
 
@@ -534,7 +579,7 @@ export default function TaskDetails({ card, onClose, onUpdate, onRefresh }) {
           />
 
           <div className="task-section">
-            <h4 className="task-section-title">Description</h4>
+            <h4 className="task-section-title">{t('task.description')}</h4>
             <div className="task-description-wrap">
               {showFormatToolbar && (
                 <div className="task-format-toolbar">
@@ -542,7 +587,7 @@ export default function TaskDetails({ card, onClose, onUpdate, onRefresh }) {
                     type="button"
                     onMouseDown={(e) => e.preventDefault()}
                     onClick={() => applyCommand('bold')}
-                    title="Bold"
+                    title={t('task.bold')}
                   >
                     B
                   </button>
@@ -550,7 +595,7 @@ export default function TaskDetails({ card, onClose, onUpdate, onRefresh }) {
                     type="button"
                     onMouseDown={(e) => e.preventDefault()}
                     onClick={() => applyCommand('underline')}
-                    title="Underline"
+                    title={t('task.underline')}
                   >
                     U
                   </button>
@@ -577,7 +622,7 @@ export default function TaskDetails({ card, onClose, onUpdate, onRefresh }) {
                 onMouseUp={handleDescriptionSelection}
                 onKeyUp={handleDescriptionSelection}
                 onMouseDown={() => setShowFormatToolbar(true)}
-                data-placeholder="Add a detailed description..."
+                data-placeholder={t('task.descriptionPlaceholder')}
               />
             </div>
           </div>
@@ -585,14 +630,14 @@ export default function TaskDetails({ card, onClose, onUpdate, onRefresh }) {
           {(attachments.length > 0 || showAttachments) && (
             <div className="task-section">
               <div className="task-section-row">
-                <h4 className="task-section-title">Attachments</h4>
+                <h4 className="task-section-title">{t('task.attachments')}</h4>
                 {attachments.length > 0 && !showAttachments && (
                   <button
                     className="btn ghost"
                     type="button"
                     onClick={() => setShowAttachments(true)}
                   >
-                    Add
+                    {t('common.add')}
                   </button>
                 )}
               </div>
@@ -615,7 +660,7 @@ export default function TaskDetails({ card, onClose, onUpdate, onRefresh }) {
                     type="text"
                     value={attachmentLabel}
                     onChange={(e) => setAttachmentLabel(e.target.value)}
-                    placeholder="Label (optional)"
+                    placeholder={t('task.attachmentLabelPlaceholder')}
                   />
                   <input
                     className="input"
@@ -624,7 +669,7 @@ export default function TaskDetails({ card, onClose, onUpdate, onRefresh }) {
                     onChange={(e) => setAttachmentUrl(e.target.value)}
                     placeholder="https://..."
                   />
-                  <button className="btn ghost" type="button" onClick={handleAddAttachment}>Add</button>
+                  <button className="btn ghost" type="button" onClick={handleAddAttachment}>{t('common.add')}</button>
                 </div>
               )}
             </div>
@@ -632,7 +677,7 @@ export default function TaskDetails({ card, onClose, onUpdate, onRefresh }) {
 
           {(checklistGroups.length > 0 || showChecklist) && (
             <div className="task-section">
-              <h4 className="task-section-title">Checklists</h4>
+              <h4 className="task-section-title">{t('task.checklist')}</h4>
 
               {showChecklist && (
                 <div className="checklist-group-create">
@@ -641,10 +686,10 @@ export default function TaskDetails({ card, onClose, onUpdate, onRefresh }) {
                     type="text"
                     value={newChecklistName}
                     onChange={(e) => setNewChecklistName(e.target.value)}
-                    placeholder="New checklist name"
+                    placeholder={t('task.newChecklistName')}
                   />
                   <button className="btn ghost" type="button" onClick={handleAddChecklistGroup}>
-                    Add checklist
+                    {t('task.addChecklist')}
                   </button>
                 </div>
               )}
@@ -652,14 +697,14 @@ export default function TaskDetails({ card, onClose, onUpdate, onRefresh }) {
               {checklistGroups.map(group => (
                 <div key={group.id} className="checklist-group">
                   <div className="checklist-group-header">
-                    <h5>{group.name}</h5>
+                    <h5>{group.name === 'Checklist' ? t('task.checklist') : group.name}</h5>
                     <div className="checklist-group-meta">
                       <span className="task-checklist-progress">{getGroupProgress(group)}%</span>
                       <button
                         className="checklist-group-delete"
                         type="button"
                         onClick={() => handleDeleteChecklistGroup(group)}
-                        title="Delete checklist"
+                        title={t('task.deleteChecklist')}
                       >
                         ✕
                       </button>
@@ -730,7 +775,7 @@ export default function TaskDetails({ card, onClose, onUpdate, onRefresh }) {
                           <span
                             className={`checklist-text ${item.completed ? 'completed' : ''}`}
                             onClick={() => startEditChecklistItem(item)}
-                            title="Click to edit"
+                            title={t('task.clickToEdit')}
                           >
                             {item.text}
                           </span>
@@ -758,14 +803,14 @@ export default function TaskDetails({ card, onClose, onUpdate, onRefresh }) {
                           handleAddChecklistItem(group.id)
                         }
                       }}
-                      placeholder="Add a new item..."
+                      placeholder={t('task.addChecklistItemPlaceholder')}
                       className="checklist-input"
                     />
                     <button
                       onClick={() => handleAddChecklistItem(group.id)}
                       className="task-add-item"
                     >
-                      + Add item
+                      {t('task.addItem')}
                     </button>
                   </div>
                 </div>
@@ -776,13 +821,18 @@ export default function TaskDetails({ card, onClose, onUpdate, onRefresh }) {
 
           <div className="task-meta">
             {tags.length > 0 && <span className="task-label">{tags[0]}</span>}
-            {priority && <span className={`task-priority ${priority}`}>{priority}</span>}
+            {priority && <span className={`task-priority ${priority}`}>{priorityLabelMap[priority] || priority}</span>}
+            {assignees.length > 0 && (
+              <span className="task-assignees-meta">
+                {t('task.assigned')}: {assignees.join(', ')}
+              </span>
+            )}
             {dueDate && <span className="task-due">{dueDate}</span>}
-            {isSaving && <span className="task-saving">Saving...</span>}
+            {isSaving && <span className="task-saving">{t('task.saving')}</span>}
           </div>
 
           <div className="task-footer">
-            <button className="task-delete-icon" onClick={handleDelete} title="Delete task">🗑</button>
+            <button className="task-delete-icon" onClick={handleDelete} title={t('task.deleteTaskAria')}>🗑</button>
           </div>
         </div>
       </div>

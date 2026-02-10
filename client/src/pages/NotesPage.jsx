@@ -3,8 +3,10 @@ import useLockBodyScroll from '../hooks/useLockBodyScroll'
 import ModalPortal from '../components/ModalPortal'
 import ConfirmModal from '../components/ConfirmModal'
 import { getNotes, createNote, deleteNote } from '../services/api'
+import { useLanguage } from '../context/LanguageContext'
 
 export default function NotesPage() {
+  const { t } = useLanguage()
   const [notes, setNotes] = useState([])
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -63,7 +65,7 @@ export default function NotesPage() {
     setConfirmDelete({
       isOpen: true,
       noteId: id,
-      noteTitle: note?.title || 'this note'
+      noteTitle: note?.title || t('notes.thisNote')
     })
   }
 
@@ -83,8 +85,8 @@ export default function NotesPage() {
   return (
     <section className="page-section active">
       <div className="section-header">
-        <h2>Notes</h2>
-        <button className="btn primary" onClick={() => setIsModalOpen(true)}>New note</button>
+        <h2>{t('notes.title')}</h2>
+        <button className="btn primary" onClick={() => setIsModalOpen(true)}>{t('notes.newNote')}</button>
       </div>
 
       {isModalOpen && (
@@ -92,7 +94,7 @@ export default function NotesPage() {
           <div className="modal-overlay" onClick={() => setIsModalOpen(false)}>
             <div className="modal-content" onClick={(e) => e.stopPropagation()}>
               <div className="modal-header">
-                <h3>Add Note</h3>
+                <h3>{t('notes.addNoteTitle')}</h3>
                 <button className="modal-close" onClick={() => setIsModalOpen(false)}>✕</button>
               </div>
               <form className="modal-form" onSubmit={handleSubmit}>
@@ -101,14 +103,14 @@ export default function NotesPage() {
                   type="text"
                   value={formData.title}
                   onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                  placeholder="Note title"
+                  placeholder={t('notes.noteTitlePlaceholder')}
                   required
                 />
                 <textarea
                   className="input"
                   value={formData.content}
                   onChange={(e) => setFormData({ ...formData, content: e.target.value })}
-                  placeholder="Write your note here..."
+                  placeholder={t('notes.noteContentPlaceholder')}
                   rows="6"
                   required
                 ></textarea>
@@ -117,11 +119,11 @@ export default function NotesPage() {
                   type="text"
                   value={formData.tags}
                   onChange={(e) => setFormData({ ...formData, tags: e.target.value })}
-                  placeholder="Tags (comma separated)"
+                  placeholder={t('notes.noteTagsPlaceholder')}
                 />
                 <div className="modal-actions">
-                  <button className="btn ghost" type="button" onClick={() => setIsModalOpen(false)}>Cancel</button>
-                  <button className="btn primary" type="submit">Add Note</button>
+                  <button className="btn ghost" type="button" onClick={() => setIsModalOpen(false)}>{t('common.cancel')}</button>
+                  <button className="btn primary" type="submit">{t('notes.addNoteButton')}</button>
                 </div>
               </form>
             </div>
@@ -131,7 +133,7 @@ export default function NotesPage() {
 
       <div className="notes-grid">
         {notes.length === 0 ? (
-          <div className="empty-state">No notes yet 📝</div>
+          <div className="empty-state">{t('notes.empty')} 📝</div>
         ) : (
           notes.map(note => (
             <div key={note.id} className="note-card">
@@ -155,8 +157,8 @@ export default function NotesPage() {
         isOpen={confirmDelete.isOpen}
         onConfirm={confirmDeleteNote}
         onCancel={() => setConfirmDelete({ isOpen: false, noteId: null, noteTitle: '' })}
-        title="Delete note"
-        message={`Are you sure you want to delete "${confirmDelete.noteTitle}"? This action cannot be undone.`}
+        title={t('notes.deleteTitle')}
+        message={t('notes.deleteMessage').replace('{note}', confirmDelete.noteTitle)}
       />
     </section>
   )

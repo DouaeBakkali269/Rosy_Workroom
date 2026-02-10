@@ -4,6 +4,7 @@ import ModalPortal from '../components/ModalPortal'
 import { getKanbanCards, createKanbanCard, updateKanbanCard, deleteKanbanCard, getKanbanColumns, createKanbanColumn, updateKanbanColumn, deleteKanbanColumn } from '../services/api'
 import TaskDetails from '../components/TaskDetails'
 import ConfirmModal from '../components/ConfirmModal'
+import { useLanguage } from '../context/LanguageContext'
 
 const DEFAULT_COLUMNS = [
   { key: 'todo', name: 'To Do', position: 1 },
@@ -26,6 +27,7 @@ function priorityRank(value) {
 }
 
 export default function KanbanPage() {
+  const { t } = useLanguage()
   const [cards, setCards] = useState([])
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [draggedCard, setDraggedCard] = useState(null)
@@ -117,7 +119,7 @@ export default function KanbanPage() {
     setConfirmDeleteColumn({
       isOpen: true,
       key,
-      name: column?.name || 'this column'
+      name: column?.name || t('kanban.thisColumn')
     })
   }
 
@@ -230,19 +232,25 @@ export default function KanbanPage() {
     column,
     cards: cards.filter(card => card.status === column.key)
   }))
+  const priorityLabelMap = {
+    high: t('task.priorityHigh'),
+    medium: t('task.priorityMedium'),
+    low: t('task.priorityLow')
+  }
+  const deleteColumnMessage = t('kanban.deleteColumnMessage').replace('{column}', confirmDeleteColumn.name)
 
   return (
     <section className="page-section active">
       <div className="section-header">
-        <h2>Kanban Board</h2>
+        <h2>{t('kanban.title')}</h2>
       </div>
       <div className="project-actions">
         <div className="kanban-action-group">
           <div className="kanban-action-row">
-            <button className="btn primary" onClick={() => setIsModalOpen(true)}>Add Task</button>
+            <button className="btn primary" onClick={() => setIsModalOpen(true)}>{t('kanban.addTask')}</button>
             <div className="kanban-action-popover">
               <button className="btn ghost" type="button" onClick={() => setShowAddColumn((value) => !value)}>
-                Add column
+                {t('kanban.addColumn')}
               </button>
               {showAddColumn && (
                 <div className="kanban-column-add-popover">
@@ -252,7 +260,7 @@ export default function KanbanPage() {
                       type="text"
                       value={newColumnName}
                       onChange={(e) => setNewColumnName(e.target.value)}
-                      placeholder="Column name"
+                      placeholder={t('kanban.columnNamePlaceholder')}
                     />
                     <button
                       className="btn ghost"
@@ -262,7 +270,7 @@ export default function KanbanPage() {
                         setShowAddColumn(false)
                       }}
                     >
-                      Add
+                      {t('kanban.addColumnButton')}
                     </button>
                   </div>
                 </div>
@@ -277,33 +285,33 @@ export default function KanbanPage() {
           <div className="modal-overlay" onClick={() => setIsModalOpen(false)}>
             <div className="modal" onClick={(e) => e.stopPropagation()}>
               <div className="modal-header">
-                <h3 className="modal-title">Add Task</h3>
+                <h3 className="modal-title">{t('kanban.addTaskTitle')}</h3>
                 <button className="modal-close" onClick={() => setIsModalOpen(false)}>✕</button>
               </div>
               <form className="modal-body" onSubmit={handleSubmit}>
                 <label className="field">
-                  <span className="field-label">Card title</span>
+                  <span className="field-label">{t('kanban.cardTitle')}</span>
                   <input
                     className="input"
                     type="text"
                     value={formData.title}
                     onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                    placeholder="Card title"
+                    placeholder={t('kanban.cardTitle')}
                     required
                   />
                 </label>
                 <label className="field">
-                  <span className="field-label">Label</span>
+                  <span className="field-label">{t('kanban.label')}</span>
                   <input
                     className="input"
                     type="text"
                     value={formData.label}
                     onChange={(e) => setFormData({ ...formData, label: e.target.value })}
-                    placeholder="Label"
+                    placeholder={t('kanban.label')}
                   />
                 </label>
                 <label className="field">
-                  <span className="field-label">Status</span>
+                  <span className="field-label">{t('kanban.status')}</span>
                   <select
                     className="input"
                     value={formData.status}
@@ -315,7 +323,7 @@ export default function KanbanPage() {
                   </select>
                 </label>
                 <label className="field">
-                  <span className="field-label">Due date</span>
+                  <span className="field-label">{t('kanban.dueDate')}</span>
                   <input
                     className="input"
                     type="date"
@@ -324,18 +332,18 @@ export default function KanbanPage() {
                   />
                 </label>
                 <label className="field">
-                  <span className="field-label">Description (optional)</span>
+                  <span className="field-label">{t('kanban.descriptionOptional')}</span>
                   <textarea
                     className="input"
                     rows={3}
                     value={formData.description}
                     onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                    placeholder="Add a short description"
+                    placeholder={t('kanban.descriptionPlaceholder')}
                   />
                 </label>
                 <div className="modal-actions">
-                  <button className="btn ghost" type="button" onClick={() => setIsModalOpen(false)}>Cancel</button>
-                  <button className="btn primary" type="submit">Add Task</button>
+                  <button className="btn ghost" type="button" onClick={() => setIsModalOpen(false)}>{t('common.cancel')}</button>
+                  <button className="btn primary" type="submit">{t('kanban.addTask')}</button>
                 </div>
               </form>
             </div>
@@ -346,6 +354,7 @@ export default function KanbanPage() {
       {selectedCard && (
         <TaskDetails
           card={selectedCard}
+          collaborators={[]}
           onClose={() => setSelectedCard(null)}
           onUpdate={() => {
             loadCards()
@@ -406,7 +415,7 @@ export default function KanbanPage() {
                   type="button"
                   onClick={() => handleDeleteColumn(column.key)}
                   disabled={columns.length <= 1}
-                  title="Delete column"
+                  title={t('kanban.deleteColumnAria')}
                 >
                   ✕
                 </button>
@@ -462,10 +471,17 @@ export default function KanbanPage() {
                     onClick={() => handleCardClick(card)}
                   >
                     <div className="card-header-row">
-                      <div className="card-label">{card.label || 'Task'}</div>
-                      {card.priority && (
-                        <span className={`card-priority ${card.priority}`}>{card.priority}</span>
-                      )}
+                      <div className="card-label">{card.label || t('kanban.taskFallback')}</div>
+                      <div className="card-header-meta">
+                        {card.priority && (
+                          <span className={`card-priority ${card.priority}`}>{priorityLabelMap[card.priority] || card.priority}</span>
+                        )}
+                        {Array.isArray(card.assignees) && card.assignees.length > 0 && (
+                          <span className="card-assignees-hint" title={card.assignees.join(', ')}>
+                            {card.assignees.length === 1 ? card.assignees[0] : `${card.assignees.length} ${t('kanban.membersCount')}`}
+                          </span>
+                        )}
+                      </div>
                     </div>
                     <div className="card-title">{card.title}</div>
                     {card.tags?.length > 1 && (
@@ -487,13 +503,13 @@ export default function KanbanPage() {
                               handleCardClick(card)
                             }}
                           >
-                            Read more...
+                            {t('kanban.readMore')}
                           </button>
                         )}
                       </div>
                     )}
                     <div className="card-meta">
-                      {card.dueDate && `Due ${card.dueDate}`}
+                      {card.dueDate && `${t('kanban.duePrefix')} ${card.dueDate}`}
                     </div>
                   </div>
                 )
@@ -506,8 +522,8 @@ export default function KanbanPage() {
         isOpen={confirmDeleteColumn.isOpen}
         onConfirm={handleConfirmDeleteColumn}
         onCancel={() => setConfirmDeleteColumn({ isOpen: false, key: null, name: '' })}
-        title="Delete column"
-        message={`Delete "${confirmDeleteColumn.name}"? Cards in this column will move to "To Do".`}
+        title={t('kanban.deleteColumnTitle')}
+        message={deleteColumnMessage}
       />
     </section>
   )

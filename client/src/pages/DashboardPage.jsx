@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import useLockBodyScroll from '../hooks/useLockBodyScroll'
 import ConfirmModal from '../components/ConfirmModal'
 import { getCurrentWeekPlan, saveWeekPlan, getNotes, getTransactions, getMonthlyBudgets } from '../services/api'
+import { useLanguage } from '../context/LanguageContext'
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
 const DEFAULT_REFLECTION = { wins: '', lessons: '', nextWeek: '' }
@@ -51,6 +52,7 @@ function formatBlockLabel(block) {
 
 export default function DashboardPage() {
   const navigate = useNavigate()
+  const { t, langKey } = useLanguage()
   const [weekPlan, setWeekPlan] = useState(createEmptyWeekPlan())
   const [weekKey, setWeekKey] = useState('')
   const [weekReflection, setWeekReflection] = useState(DEFAULT_REFLECTION)
@@ -139,7 +141,7 @@ export default function DashboardPage() {
     setConfirmDelete({
       isOpen: true,
       taskId,
-      taskText: task?.text || 'this task'
+      taskText: task?.text || t('dashboard.thisTask')
     })
   }
 
@@ -200,6 +202,18 @@ export default function DashboardPage() {
   }
 
   const recentNotes = notes.slice(0, 2)
+  const localeByLang = { en: 'en-US', fr: 'fr-FR', de: 'de-DE' }
+  const locale = localeByLang[langKey] || 'en-US'
+  const dayLabelMap = {
+    Monday: t('week.days.monday'),
+    Tuesday: t('week.days.tuesday'),
+    Wednesday: t('week.days.wednesday'),
+    Thursday: t('week.days.thursday'),
+    Friday: t('week.days.friday'),
+    Saturday: t('week.days.saturday'),
+    Sunday: t('week.days.sunday')
+  }
+  const dayLabel = (day) => dayLabelMap[day] || day
 
   // Calculate monthly spending for the last 6 months
   const getMonthlySpending = () => {
@@ -216,7 +230,7 @@ export default function DashboardPage() {
       months.push({
         year: date.getFullYear(),
         month: date.getMonth() + 1,
-        name: date.toLocaleString('default', { month: 'short' }),
+        name: date.toLocaleString(locale, { month: 'short' }),
         spending: 0,
         budget: budgetMap[`${date.getFullYear()}-${date.getMonth() + 1}`] ?? null
       })
@@ -242,22 +256,32 @@ export default function DashboardPage() {
   }
 
   const monthlyData = getMonthlySpending()
-  const maxSpending = Math.max(...monthlyData.map(m => m.spending), 1)
+  const chartMaxValue = Math.max(
+    ...monthlyData.map(m => Math.max(m.spending, m.saved ?? 0)),
+    1
+  )
+  const chartWidth = 100
+  const chartHeight = 44
+  const toY = (value) => chartHeight - (value / chartMaxValue) * chartHeight
+  const toX = (index) => (monthlyData.length <= 1 ? 0 : (index / (monthlyData.length - 1)) * chartWidth)
+  const spentPoints = monthlyData.map((month, index) => `${toX(index)},${toY(month.spending)}`).join(' ')
+  const savedPoints = monthlyData.map((month, index) => `${toX(index)},${toY(month.saved ?? 0)}`).join(' ')
 
   const todayIndex = getTodayIndex()
   const todayTasks = weekPlan[todayIndex]?.tasks || []
-  const todayLabel = DAYS[todayIndex]
+  const todayLabel = dayLabel(DAYS[todayIndex])
+  const deleteMessage = t('dashboard.deleteTaskMessage').replace('{task}', confirmDelete.taskText)
 
   return (
     <section className="page-section active">
       <div className="hero-text-section">
-        <h1 className="hero-main-text">Welcome back sweetheart to your cozy workroom ✿</h1>
-        <p className="hero-sub-text">Today is about gentle focus. Pick one project, move one card, and log one win.</p>
+        <h1 className="hero-main-text">{t('dashboard.welcomeTitle')}</h1>
+        <p className="hero-sub-text">{t('dashboard.welcomeSubtitle')}</p>
       </div>
 
       <div className="grid-3">
         <div className="card">
-          <div className="card-title">Today plan · {todayLabel}</div>
+          <div className="card-title">{t('dashboard.todayPlan')} · {todayLabel}</div>
           <ul
             className="checklist"
             id="tasks-list"
@@ -270,7 +294,7 @@ export default function DashboardPage() {
             }}
           >
             {todayTasks.length === 0 ? (
-              <div className="empty-state">No tasks yet. Add your first one 💗</div>
+              <div className="empty-state">{t('dashboard.noTasks')}</div>
             ) : (
               todayTasks.map(task => (
                 <li
@@ -317,36 +341,56 @@ export default function DashboardPage() {
               type="text"
               value={newTask}
               onChange={(e) => setNewTask(e.target.value)}
-              placeholder="Add a task"
+              placeholder={t('dashboard.addTaskPlaceholder')}
             />
-            <button className="btn ghost" type="submit">Add</button>
+            <button className="btn ghost" type="submit">{t('dashboard.addTaskButton')}</button>
           </form>
         </div>
         <div className="card">
-          <div className="card-title">Money snapshot</div>
-          <div className="money-chart-container">
-            {monthlyData.map((month, idx) => (
-              <div key={idx} className="month-bar-wrapper">
-                <div 
-                  className="month-bar" 
-                  style={{ height: `${(month.spending / maxSpending) * 100}%` }}
-                  title={`${month.name}: ${month.spending.toFixed(2)} MAD`}
-                ></div>
-                <div className="month-label">{month.name}</div>
-                <div className="month-amount">{month.spending > 0 ? month.spending.toFixed(0) : '0'} MAD</div>
-                {month.saved !== null && (
-                  <div className="month-amount month-saved">
-                    Saved: {month.saved.toFixed(0)} MAD
-                  </div>
-                )}
-              </div>
-            ))}
+          <div className="card-title">{t('dashboard.moneySnapshot')}</div>
+          <div className="money-line-chart-wrap">
+            <div className="money-line-legend">
+              <span className="money-legend-item">
+                <span className="money-legend-dot money-legend-dot-spent"></span>
+                {t('dashboard.spent')}
+              </span>
+              <span className="money-legend-item">
+                <span className="money-legend-dot money-legend-dot-saved"></span>
+                {t('dashboard.saved')}
+              </span>
+            </div>
+            <div className="money-line-chart-container">
+              <svg className="money-line-chart" viewBox={`0 0 ${chartWidth} ${chartHeight}`} preserveAspectRatio="none" aria-label={t('dashboard.moneyTrendAria')}>
+                <line x1="0" y1={chartHeight} x2={chartWidth} y2={chartHeight} className="money-line-axis" />
+                <polyline className="money-line spent-line" points={spentPoints}></polyline>
+                <polyline className="money-line saved-line" points={savedPoints}></polyline>
+                {monthlyData.map((month, idx) => (
+                  <g key={idx}>
+                    <circle className="money-point spent-point" cx={toX(idx)} cy={toY(month.spending)} r="1.6">
+                      <title>{`${month.name} ${t('dashboard.spent')}: ${month.spending.toFixed(0)} MAD`}</title>
+                    </circle>
+                    <circle className="money-point saved-point" cx={toX(idx)} cy={toY(month.saved ?? 0)} r="1.6">
+                      <title>{`${month.name} ${t('dashboard.saved')}: ${(month.saved ?? 0).toFixed(0)} MAD`}</title>
+                    </circle>
+                  </g>
+                ))}
+              </svg>
+            </div>
+            <div className="money-month-grid">
+              {monthlyData.map((month, idx) => (
+                <div key={idx} className="money-month-item">
+                  <div className="month-label">{month.name}</div>
+                  <div className="month-amount">{t('dashboard.monthSpent')}: {month.spending.toFixed(0)} MAD</div>
+                  <div className="month-amount month-saved">{t('dashboard.monthSaved')}: {(month.saved ?? 0).toFixed(0)} MAD</div>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
         <div className="card">
-          <div className="card-title">Recent notes</div>
+          <div className="card-title">{t('dashboard.reminders')}</div>
           {recentNotes.length === 0 ? (
-            <div className="empty-state">No notes yet. Start jotting down thoughts 💗</div>
+            <div className="empty-state">{t('dashboard.noReminders')}</div>
           ) : (
             recentNotes.map(note => (
               <div key={note.id} className="note">
@@ -356,7 +400,7 @@ export default function DashboardPage() {
             ))
           )}
           <div className="notes-footer">
-            <button className="notes-link" onClick={() => navigate('/notes')}>Add more notes</button>
+            <button className="notes-link" onClick={() => navigate('/notes')}>{t('dashboard.manageReminders')}</button>
           </div>
         </div>
       </div>
@@ -364,8 +408,8 @@ export default function DashboardPage() {
         isOpen={confirmDelete.isOpen}
         onConfirm={confirmDeleteTask}
         onCancel={() => setConfirmDelete({ isOpen: false, taskId: null, taskText: '' })}
-        title="Delete task"
-        message={`Are you sure you want to delete "${confirmDelete.taskText}"? This action cannot be undone.`}
+        title={t('dashboard.deleteTaskTitle')}
+        message={deleteMessage}
       />
     </section>
   )
