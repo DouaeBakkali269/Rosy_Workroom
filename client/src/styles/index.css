@@ -1065,8 +1065,15 @@ body.modal-open {
 
 .money-line-legend {
   display: flex;
-  gap: 14px;
+  gap: 12px;
   align-items: center;
+  justify-content: space-between;
+}
+
+.money-legend-items {
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
   flex-wrap: wrap;
 }
 
@@ -1093,6 +1100,19 @@ body.modal-open {
   background: #73b58e;
 }
 
+.money-focus-toggle {
+  margin-left: auto;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  padding: 7px 12px;
+  min-height: auto;
+}
+
+.money-focus-toggle:hover {
+  transform: translateY(-1px);
+}
+
 .money-line-chart-container {
   height: 140px;
   width: 100%;
@@ -1114,7 +1134,7 @@ body.modal-open {
 
 .money-line {
   fill: none;
-  stroke-width: 2;
+  stroke-width: 0.9;
 }
 
 .spent-line {
@@ -1126,7 +1146,7 @@ body.modal-open {
 }
 
 .money-point {
-  stroke-width: 0.8;
+  stroke-width: 0.45;
 }
 
 .spent-point {
@@ -1556,8 +1576,42 @@ body.modal-open {
 }
 
 .card-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: nowrap;
   font-size: 12px;
   opacity: 0.7;
+}
+
+.card-due-meta {
+  color: inherit;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.card-checklist-progress {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border-radius: 6px;
+  border: 1px solid rgba(146, 97, 120, 0.35);
+  background: rgba(255, 255, 255, 0.66);
+  color: #5d4250;
+  font-weight: 700;
+  opacity: 1;
+}
+
+.card-checklist-progress.complete {
+  border-color: rgba(89, 145, 79, 0.55);
+  background: rgba(103, 157, 88, 0.95);
+  color: #fff;
 }
 
 .money-grid {
@@ -3091,6 +3145,11 @@ body.modal-open {
   border: 1px solid rgba(233, 157, 186, 0.35);
 }
 
+.attachment-item.drag-over {
+  border-color: rgba(212, 118, 160, 0.7);
+  background: rgba(255, 242, 248, 0.95);
+}
+
 .attachment-item button {
   border: none;
   background: transparent;
@@ -3213,6 +3272,10 @@ body.modal-open {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+}
+
+.attachment-section-row {
+  margin-bottom: 6px;
 }
 
 .card-priority.high {

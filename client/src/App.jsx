@@ -14,6 +14,7 @@ import WeekHistoryPage from './pages/WeekHistoryPage'
 import LoginPage from './pages/LoginPage'
 import ProfilePage from './pages/ProfilePage'
 import { LanguageProvider } from './context/LanguageContext'
+import { logout as logoutApi } from './services/api'
 import './styles/App.css'
 
 function RequireAuth({ user, children }) {
@@ -37,6 +38,16 @@ function AppLayout({ user, onLogout }) {
 
 function App() {
   const [user, setUser] = useState(() => {
+    const authRaw = localStorage.getItem('auth')
+    if (authRaw) {
+      try {
+        const parsed = JSON.parse(authRaw)
+        if (parsed?.user) return parsed.user
+      } catch {
+        // fall back to legacy storage
+      }
+    }
+
     const storedUser = localStorage.getItem('user')
     if (!storedUser) return null
     try {
@@ -46,14 +57,23 @@ function App() {
     }
   })
 
-  function handleLogin(userData) {
-    console.log('✅ User logged in:', userData)
-    setUser(userData)
-    localStorage.setItem('user', JSON.stringify(userData))
+  function handleLogin(authData) {
+    const nextUser = authData?.user || null
+    if (!nextUser) return
+    console.log('User logged in:', nextUser)
+    setUser(nextUser)
+    localStorage.setItem('auth', JSON.stringify(authData))
+    localStorage.setItem('user', JSON.stringify(nextUser))
   }
 
-  function handleLogout() {
-    console.log('👋 User logged out')
+  async function handleLogout() {
+    console.log('User logged out')
+    try {
+      await logoutApi()
+    } catch {
+      // ignore API logout failures during local cleanup
+    }
+    localStorage.removeItem('auth')
     localStorage.removeItem('user')
     setUser(null)
   }

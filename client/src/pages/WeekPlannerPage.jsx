@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import useLockBodyScroll from '../hooks/useLockBodyScroll'
 import ConfirmModal from '../components/ConfirmModal'
@@ -44,6 +44,27 @@ function normalizeTaskBlock(block) {
   return TIME_BLOCKS.includes(block) ? block : 'anytime'
 }
 
+function escapeHtml(value) {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
+function formatRichTextValue(text) {
+  if (!text) return ''
+  const escaped = escapeHtml(text)
+  return escaped.replace(/\n/g, '<br />')
+}
+
+function normalizeRichTextValue(value) {
+  if (!value) return ''
+  if (/<\/?[a-z][\s\S]*>/i.test(value)) return value
+  return formatRichTextValue(value)
+}
+
 function formatWeekRange(weekKey, locale) {
   if (!weekKey || !isWeekKey(weekKey)) return weekKey || ''
   const [year, month, day] = weekKey.split('-').map(Number)
@@ -86,6 +107,8 @@ export default function WeekPlannerPage() {
     taskId: null,
     taskText: ''
   })
+  const [showFocusFormatToolbar, setShowFocusFormatToolbar] = useState(false)
+  const focusEditorRef = useRef(null)
 
   useLockBodyScroll(confirmDelete.isOpen)
 
@@ -102,6 +125,16 @@ export default function WeekPlannerPage() {
 
     return () => clearInterval(interval)
   }, [activeWeekKey])
+
+  useEffect(() => {
+    setShowFocusFormatToolbar(false)
+    const editor = focusEditorRef.current
+    if (!editor) return
+    const normalizedFocus = normalizeRichTextValue((weekPlan[selectedDay] && weekPlan[selectedDay].focus) || '')
+    if (editor.innerHTML !== normalizedFocus) {
+      editor.innerHTML = normalizedFocus
+    }
+  }, [selectedDay, activeWeekKey])
 
   async function loadWeekPlanner(requestedWeek = '') {
     setIsLoading(true)
@@ -264,6 +297,26 @@ export default function WeekPlannerPage() {
     saveChanges(updated)
   }
 
+  function applyFocusCommand(command) {
+    const editor = focusEditorRef.current
+    if (!editor) return
+    editor.focus()
+    document.execCommand(command, false, null)
+    updateFocus(selectedDay, editor.innerHTML)
+  }
+
+  function handleFocusSelection() {
+    const editor = focusEditorRef.current
+    if (!editor) return
+    const selection = window.getSelection()
+    if (!selection || selection.rangeCount === 0) return
+    const range = selection.getRangeAt(0)
+    if (!editor.contains(range.commonAncestorContainer)) return
+    if (!selection.isCollapsed) {
+      setShowFocusFormatToolbar(true)
+    }
+  }
+
   function carryOverUnfinished() {
     if (selectedDay >= DAYS.length) return
     const nextDayIndex = (selectedDay + 1) % 7
@@ -422,13 +475,49 @@ export default function WeekPlannerPage() {
           {selectedDay < DAYS.length && (
             <div className="day-section">
               <h4>{t('week.dailyFocusGoal')}</h4>
-              <textarea
-                className="input focus-input"
-                value={currentDay.focus}
-                onChange={(e) => updateFocus(selectedDay, e.target.value)}
-                placeholder={t('week.focusPlaceholder')}
-                rows="2"
-              />
+              <div className="task-description-wrap">
+                {showFocusFormatToolbar && (
+                  <div className="task-format-toolbar">
+                    <button
+                      type="button"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => applyFocusCommand('bold')}
+                      title={t('task.bold')}
+                    >
+                      B
+                    </button>
+                    <button
+                      type="button"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => applyFocusCommand('underline')}
+                      title={t('task.underline')}
+                    >
+                      U
+                    </button>
+                  </div>
+                )}
+                <div
+                  key={`${activeWeekKey}-${selectedDay}`}
+                  className="task-description editor focus-input"
+                  contentEditable
+                  suppressContentEditableWarning
+                  spellCheck={false}
+                  autoCorrect="off"
+                  autoCapitalize="off"
+                  data-gramm="false"
+                  ref={focusEditorRef}
+                  onInput={(e) => updateFocus(selectedDay, e.currentTarget.innerHTML)}
+                  onFocus={() => {
+                    setShowFocusFormatToolbar(true)
+                    requestAnimationFrame(() => setShowFocusFormatToolbar(true))
+                  }}
+                  onBlur={() => setShowFocusFormatToolbar(false)}
+                  onMouseUp={handleFocusSelection}
+                  onKeyUp={handleFocusSelection}
+                  onMouseDown={() => setShowFocusFormatToolbar(true)}
+                  data-placeholder={t('week.focusPlaceholder')}
+                />
+              </div>
             </div>
           )}
 
@@ -539,6 +628,9 @@ export default function WeekPlannerPage() {
                     value={weekReflection.wins}
                     onChange={(e) => updateReflection('wins', e.target.value)}
                     placeholder={t('week.reflectionWinsPlaceholder')}
+                    spellCheck={false}
+                    autoCorrect="off"
+                    autoCapitalize="off"
                     rows="4"
                   />
                 </div>
@@ -549,6 +641,9 @@ export default function WeekPlannerPage() {
                     value={weekReflection.lessons}
                     onChange={(e) => updateReflection('lessons', e.target.value)}
                     placeholder={t('week.reflectionLessonsPlaceholder')}
+                    spellCheck={false}
+                    autoCorrect="off"
+                    autoCapitalize="off"
                     rows="4"
                   />
                 </div>
@@ -559,6 +654,9 @@ export default function WeekPlannerPage() {
                     value={weekReflection.nextWeek}
                     onChange={(e) => updateReflection('nextWeek', e.target.value)}
                     placeholder={t('week.reflectionNextWeekPlaceholder')}
+                    spellCheck={false}
+                    autoCorrect="off"
+                    autoCapitalize="off"
                     rows="4"
                   />
                 </div>
@@ -574,6 +672,9 @@ export default function WeekPlannerPage() {
                 value={currentDay.notes}
                 onChange={(e) => updateNotes(selectedDay, e.target.value)}
                 placeholder={t('week.notesPlaceholder')}
+                spellCheck={false}
+                autoCorrect="off"
+                autoCapitalize="off"
                 rows="5"
               />
             </div>

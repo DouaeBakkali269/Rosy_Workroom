@@ -50,9 +50,12 @@ export default function LoginPage({ onLogin, initialMode = 'login' }) {
         setIsSuccessMessage(true)
         navigate('/login')
       } else {
-        // After login, store user and proceed
-        localStorage.setItem('user', JSON.stringify(data.user))
-        onLogin(data.user)
+        // After login, store auth payload and proceed
+        onLogin({
+          user: data.user,
+          token: data.token,
+          tokenExpiresAt: data.tokenExpiresAt
+        })
         navigate('/dashboard')
       }
     } catch (err) {

@@ -47,6 +47,23 @@ function priorityRank(value) {
   return 3
 }
 
+function getChecklistStats(card) {
+  if (Array.isArray(card.checklistGroups) && card.checklistGroups.length) {
+    const allItems = card.checklistGroups.flatMap(group => (Array.isArray(group.items) ? group.items : []))
+    const total = allItems.length
+    const completed = allItems.filter(item => item?.completed).length
+    return { total, completed }
+  }
+
+  if (Array.isArray(card.checklist) && card.checklist.length) {
+    const total = card.checklist.length
+    const completed = card.checklist.filter(item => item?.completed).length
+    return { total, completed }
+  }
+
+  return { total: 0, completed: 0 }
+}
+
 export default function ProjectKanban({ project, onBack }) {
   const { t } = useLanguage()
   const [cards, setCards] = useState([])
@@ -67,6 +84,7 @@ export default function ProjectKanban({ project, onBack }) {
     title: '',
     label: '',
     status: 'todo',
+    priority: '',
     dueDate: '',
     description: ''
   })
@@ -107,9 +125,10 @@ export default function ProjectKanban({ project, onBack }) {
     await createKanbanCard({
       ...formData,
       project_id: project.id,
+      priority: formData.priority || null,
       description: formData.description || null
     })
-    setFormData({ title: '', label: '', status: columns[0]?.key || 'todo', dueDate: '', description: '' })
+    setFormData({ title: '', label: '', status: columns[0]?.key || 'todo', priority: '', dueDate: '', description: '' })
     setIsModalOpen(false)
     loadCards()
   }
@@ -376,6 +395,19 @@ export default function ProjectKanban({ project, onBack }) {
                   </select>
                 </label>
                 <label className="field">
+                  <span className="field-label">{t('task.priority')}</span>
+                  <select
+                    className="input"
+                    value={formData.priority}
+                    onChange={(e) => setFormData({ ...formData, priority: e.target.value })}
+                  >
+                    <option value="">{t('common.none')}</option>
+                    <option value="low">{t('task.priorityLow')}</option>
+                    <option value="medium">{t('task.priorityMedium')}</option>
+                    <option value="high">{t('task.priorityHigh')}</option>
+                  </select>
+                </label>
+                <label className="field">
                   <span className="field-label">{t('kanban.dueDate')}</span>
                   <input
                     className="input"
@@ -488,6 +520,9 @@ export default function ProjectKanban({ project, onBack }) {
                 .map(card => {
                 const descriptionText = stripHtml(card.description)
                 const showReadMore = descriptionText.length > 140
+                const checklistStats = getChecklistStats(card)
+                const hasChecklist = checklistStats.total > 0
+                const checklistComplete = hasChecklist && checklistStats.completed === checklistStats.total
                 return (
                   <div
                     key={card.id}
@@ -563,7 +598,17 @@ export default function ProjectKanban({ project, onBack }) {
                       </div>
                     )}
                     <div className="card-meta">
-                      {card.dueDate && `${t('kanban.duePrefix')} ${card.dueDate}`}
+                      {card.dueDate && (
+                        <span className="card-due-meta">{`${t('kanban.duePrefix')} ${card.dueDate}`}</span>
+                      )}
+                      {hasChecklist && (
+                        <span
+                          className={`card-checklist-progress ${checklistComplete ? 'complete' : ''}`}
+                          title={`${checklistStats.completed}/${checklistStats.total} checklist items done`}
+                        >
+                          <span aria-hidden="true">☑</span> {checklistStats.completed}/{checklistStats.total}
+                        </span>
+                      )}
                     </div>
                     <div className="kanban-mobile-actions" onClick={(e) => e.stopPropagation()}>
                       {columns.map(col => (
