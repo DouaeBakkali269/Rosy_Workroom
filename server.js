@@ -411,6 +411,7 @@ async function init() {
       key TEXT NOT NULL,
       name TEXT NOT NULL,
       position INTEGER DEFAULT 0,
+      project_id INTEGER,
       user_id INTEGER,
       UNIQUE(key, user_id)
     )`
@@ -656,19 +657,29 @@ async function init() {
   }
 
   try {
-    const columns = await all("SELECT * FROM kanban_columns WHERE user_id IS NULL");
+    const kanbanColumnDefs = await all("PRAGMA table_info(kanban_columns)");
+    const kanbanColumnNames = new Set(kanbanColumnDefs.map((col) => col.name));
+    if (!kanbanColumnNames.has("project_id")) {
+      await run("ALTER TABLE kanban_columns ADD COLUMN project_id INTEGER");
+    }
+  } catch (err) {
+    console.error("⚠️  Failed to migrate kanban_columns project scope:", err.message);
+  }
+
+  try {
+    const columns = await all("SELECT * FROM kanban_columns WHERE user_id IS NULL AND project_id IS NULL");
     if (!columns.length) {
       await run(
-        "INSERT INTO kanban_columns (key, name, position, user_id) VALUES (?, ?, ?, ?)",
-        ["todo", "To Do", 1, null]
+        "INSERT INTO kanban_columns (key, name, position, project_id, user_id) VALUES (?, ?, ?, ?, ?)",
+        ["todo", "To Do", 1, null, null]
       );
       await run(
-        "INSERT INTO kanban_columns (key, name, position, user_id) VALUES (?, ?, ?, ?)",
-        ["inprogress", "In Progress", 2, null]
+        "INSERT INTO kanban_columns (key, name, position, project_id, user_id) VALUES (?, ?, ?, ?, ?)",
+        ["inprogress", "In Progress", 2, null, null]
       );
       await run(
-        "INSERT INTO kanban_columns (key, name, position, user_id) VALUES (?, ?, ?, ?)",
-        ["done", "Done", 3, null]
+        "INSERT INTO kanban_columns (key, name, position, project_id, user_id) VALUES (?, ?, ?, ?, ?)",
+        ["done", "Done", 3, null, null]
       );
     }
   } catch (err) {
@@ -1216,10 +1227,33 @@ app.delete("/api/transactions/:id", async (req, res) => {
 // Kanban Cards
 app.get("/api/kanban/columns", async (req, res) => {
   if (!req.userId) return res.status(401).send("Unauthorized");
-  const rows = await all(
-    "SELECT key, name, position FROM kanban_columns WHERE user_id IS NULL OR user_id = ? ORDER BY position ASC, id ASC",
-    [req.userId]
-  );
+  const projectIdRaw = req.query.projectId;
+  const hasProjectParam = projectIdRaw !== undefined && projectIdRaw !== null && String(projectIdRaw).trim() !== "";
+
+  let rows = [];
+  if (hasProjectParam && String(projectIdRaw) !== "0") {
+    const projectId = Number(projectIdRaw);
+    if (!Number.isFinite(projectId) || projectId <= 0) {
+      return res.status(400).send("Invalid projectId");
+    }
+    const hasAccess = await canAccessProject(projectId, req);
+    if (!hasAccess) return res.status(403).send("Forbidden");
+    rows = await all(
+      `SELECT key, name, position
+       FROM kanban_columns
+       WHERE (user_id IS NULL AND project_id IS NULL) OR project_id = ?
+       ORDER BY position ASC, id ASC`,
+      [projectId]
+    );
+  } else {
+    rows = await all(
+      `SELECT key, name, position
+       FROM kanban_columns
+       WHERE (user_id IS NULL AND project_id IS NULL) OR (project_id IS NULL AND user_id = ?)
+       ORDER BY position ASC, id ASC`,
+      [req.userId]
+    );
+  }
   if (!rows.length) {
     return res.json([
       { key: "todo", name: "To Do", position: 1 },
@@ -1232,27 +1266,53 @@ app.get("/api/kanban/columns", async (req, res) => {
 
 app.post("/api/kanban/columns", async (req, res) => {
   if (!req.userId) return res.status(401).send("Unauthorized");
-  const { name } = req.body;
+  const { name, projectId } = req.body;
   if (!name || typeof name !== "string") return res.status(400).send("Name required");
+  const isProjectScoped = projectId !== undefined && projectId !== null && String(projectId) !== "0";
+  let normalizedProjectId = null;
+  if (isProjectScoped) {
+    normalizedProjectId = Number(projectId);
+    if (!Number.isFinite(normalizedProjectId) || normalizedProjectId <= 0) {
+      return res.status(400).send("Invalid projectId");
+    }
+    const hasAccess = await canAccessProject(normalizedProjectId, req);
+    if (!hasAccess) return res.status(403).send("Forbidden");
+  }
   const slug = name
     .trim()
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/(^-|-$)/g, "") || "column";
-  const [row] = await all(
-    "SELECT COUNT(*) as count FROM kanban_columns WHERE key LIKE ? AND (user_id IS NULL OR user_id = ?)",
-    [`${slug}%`, req.userId]
-  );
+  let row;
+  if (isProjectScoped) {
+    [row] = await all(
+      "SELECT COUNT(*) as count FROM kanban_columns WHERE key LIKE ? AND ((user_id IS NULL AND project_id IS NULL) OR project_id = ?)",
+      [`${slug}%`, normalizedProjectId]
+    );
+  } else {
+    [row] = await all(
+      "SELECT COUNT(*) as count FROM kanban_columns WHERE key LIKE ? AND ((user_id IS NULL AND project_id IS NULL) OR (project_id IS NULL AND user_id = ?))",
+      [`${slug}%`, req.userId]
+    );
+  }
   const suffix = row?.count ? `-${row.count + 1}` : "";
   const key = `${slug}${suffix}`;
-  const [positionRow] = await all(
-    "SELECT COALESCE(MAX(position), 0) as maxPos FROM kanban_columns WHERE user_id IS NULL OR user_id = ?",
-    [req.userId]
-  );
+  let positionRow;
+  if (isProjectScoped) {
+    [positionRow] = await all(
+      "SELECT COALESCE(MAX(position), 0) as maxPos FROM kanban_columns WHERE (user_id IS NULL AND project_id IS NULL) OR project_id = ?",
+      [normalizedProjectId]
+    );
+  } else {
+    [positionRow] = await all(
+      "SELECT COALESCE(MAX(position), 0) as maxPos FROM kanban_columns WHERE (user_id IS NULL AND project_id IS NULL) OR (project_id IS NULL AND user_id = ?)",
+      [req.userId]
+    );
+  }
   const position = (positionRow?.maxPos || 0) + 1;
   await run(
-    "INSERT INTO kanban_columns (key, name, position, user_id) VALUES (?, ?, ?, ?)",
-    [key, name.trim(), position, req.userId]
+    "INSERT INTO kanban_columns (key, name, position, project_id, user_id) VALUES (?, ?, ?, ?, ?)",
+    [key, name.trim(), position, normalizedProjectId, isProjectScoped ? null : req.userId]
   );
   res.status(201).json({ key, name: name.trim(), position });
 });
@@ -1260,38 +1320,90 @@ app.post("/api/kanban/columns", async (req, res) => {
 app.put("/api/kanban/columns/:key", async (req, res) => {
   if (!req.userId) return res.status(401).send("Unauthorized");
   const { key } = req.params;
-  const { name, position } = req.body;
-  const existing = await all(
-    "SELECT * FROM kanban_columns WHERE key = ? AND (user_id IS NULL OR user_id = ?)",
-    [key, req.userId]
-  );
+  const { name, position, projectId } = req.body;
+  const isProjectScoped = projectId !== undefined && projectId !== null && String(projectId) !== "0";
+  let existing = [];
+
+  if (isProjectScoped) {
+    const normalizedProjectId = Number(projectId);
+    if (!Number.isFinite(normalizedProjectId) || normalizedProjectId <= 0) {
+      return res.status(400).send("Invalid projectId");
+    }
+    const hasAccess = await canAccessProject(normalizedProjectId, req);
+    if (!hasAccess) return res.status(403).send("Forbidden");
+    existing = await all(
+      "SELECT * FROM kanban_columns WHERE key = ? AND project_id = ?",
+      [key, normalizedProjectId]
+    );
+  } else {
+    existing = await all(
+      "SELECT * FROM kanban_columns WHERE key = ? AND project_id IS NULL AND (user_id IS NULL OR user_id = ?)",
+      [key, req.userId]
+    );
+  }
   if (!existing.length) return res.status(404).send("Not found");
   const nextName = typeof name === "string" && name.trim() ? name.trim() : existing[0].name;
   const nextPosition = typeof position === "number" ? position : existing[0].position;
-  await run(
-    "UPDATE kanban_columns SET name = ?, position = ?, user_id = ? WHERE key = ? AND (user_id IS NULL OR user_id = ?)",
-    [nextName, nextPosition, req.userId, key, req.userId]
-  );
+  if (isProjectScoped) {
+    await run(
+      "UPDATE kanban_columns SET name = ?, position = ? WHERE key = ? AND project_id = ?",
+      [nextName, nextPosition, key, Number(projectId)]
+    );
+  } else {
+    await run(
+      "UPDATE kanban_columns SET name = ?, position = ?, user_id = ? WHERE key = ? AND project_id IS NULL AND (user_id IS NULL OR user_id = ?)",
+      [nextName, nextPosition, req.userId, key, req.userId]
+    );
+  }
   res.json({ key, name: nextName, position: nextPosition });
 });
 
 app.delete("/api/kanban/columns/:key", async (req, res) => {
   if (!req.userId) return res.status(401).send("Unauthorized");
   const { key } = req.params;
-  const existing = await all(
-    "SELECT * FROM kanban_columns WHERE key = ? AND (user_id IS NULL OR user_id = ?)",
-    [key, req.userId]
-  );
+  const projectIdRaw = req.query.projectId;
+  const isProjectScoped = projectIdRaw !== undefined && projectIdRaw !== null && String(projectIdRaw) !== "" && String(projectIdRaw) !== "0";
+  let existing = [];
+
+  if (isProjectScoped) {
+    const normalizedProjectId = Number(projectIdRaw);
+    if (!Number.isFinite(normalizedProjectId) || normalizedProjectId <= 0) {
+      return res.status(400).send("Invalid projectId");
+    }
+    const hasAccess = await canAccessProject(normalizedProjectId, req);
+    if (!hasAccess) return res.status(403).send("Forbidden");
+    existing = await all(
+      "SELECT * FROM kanban_columns WHERE key = ? AND project_id = ?",
+      [key, normalizedProjectId]
+    );
+  } else {
+    existing = await all(
+      "SELECT * FROM kanban_columns WHERE key = ? AND project_id IS NULL AND (user_id IS NULL OR user_id = ?)",
+      [key, req.userId]
+    );
+  }
   if (!existing.length) return res.status(404).send("Not found");
 
-  await run(
-    "UPDATE kanban_cards SET status = 'todo' WHERE user_id = ? AND status = ?",
-    [req.userId, key]
-  );
-  await run(
-    "DELETE FROM kanban_columns WHERE key = ? AND (user_id IS NULL OR user_id = ?)",
-    [key, req.userId]
-  );
+  if (isProjectScoped) {
+    const normalizedProjectId = Number(projectIdRaw);
+    await run(
+      "UPDATE kanban_cards SET status = 'todo' WHERE project_id = ? AND status = ?",
+      [normalizedProjectId, key]
+    );
+    await run(
+      "DELETE FROM kanban_columns WHERE key = ? AND project_id = ?",
+      [key, normalizedProjectId]
+    );
+  } else {
+    await run(
+      "UPDATE kanban_cards SET status = 'todo' WHERE user_id = ? AND project_id IS NULL AND status = ?",
+      [req.userId, key]
+    );
+    await run(
+      "DELETE FROM kanban_columns WHERE key = ? AND project_id IS NULL AND (user_id IS NULL OR user_id = ?)",
+      [key, req.userId]
+    );
+  }
   res.status(204).send();
 });
 

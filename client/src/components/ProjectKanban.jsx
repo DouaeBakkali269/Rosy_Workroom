@@ -103,7 +103,7 @@ export default function ProjectKanban({ project, onBack }) {
 
   async function loadColumns() {
     try {
-      const data = await getKanbanColumns()
+      const data = await getKanbanColumns(project.id)
       if (Array.isArray(data) && data.length) {
         const merged = mergeWithDefaultColumns(data)
         setColumns(merged)
@@ -137,7 +137,7 @@ export default function ProjectKanban({ project, onBack }) {
     const name = newColumnName.trim()
     if (!name) return
     try {
-      const created = await createKanbanColumn({ name })
+      const created = await createKanbanColumn({ name, projectId: project.id })
       setColumns((prev) => [...prev, created])
       setNewColumnName('')
     } catch (err) {
@@ -149,7 +149,7 @@ export default function ProjectKanban({ project, onBack }) {
     const trimmed = name.trim()
     if (!trimmed) return
     try {
-      const updated = await updateKanbanColumn(key, { name: trimmed })
+      const updated = await updateKanbanColumn(key, { name: trimmed, projectId: project.id })
       setColumns((prev) => prev.map(col => (col.key === key ? updated : col)))
     } catch (err) {
       console.error('Failed to rename column:', err)
@@ -167,7 +167,7 @@ export default function ProjectKanban({ project, onBack }) {
 
   async function handleConfirmDeleteColumn() {
     try {
-      await deleteKanbanColumn(confirmDeleteColumn.key)
+      await deleteKanbanColumn(confirmDeleteColumn.key, project.id)
       await loadColumns()
       await loadCards()
     } catch (err) {

@@ -464,9 +464,6 @@ export default function DashboardPage() {
                   </>
                 )}
               </svg>
-              {hasNoMoneyData && (
-                <div className="empty-state">No transactions yet - add your first one to see your money bloom 🌸</div>
-              )}
             </div>
             <div className="money-month-grid">
               {monthlyData.map((month, idx) => (
