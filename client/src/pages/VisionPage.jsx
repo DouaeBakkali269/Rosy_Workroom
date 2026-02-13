@@ -67,6 +67,18 @@ function normalizeType(value, typeByKey) {
   return typeByKey[raw] ? raw : 'personal'
 }
 
+function getGoalImageUrl(goal) {
+  const raw = typeof goal?.image_url === 'string'
+    ? goal.image_url
+    : typeof goal?.imageUrl === 'string'
+      ? goal.imageUrl
+      : ''
+  const value = raw.trim()
+  if (!value) return ''
+  if (/^(https?:\/\/|\/|data:image\/)/i.test(value)) return value
+  return ''
+}
+
 export default function VisionPage() {
   const { t } = useLanguage()
   const [goals, setGoals] = useState([])
@@ -112,7 +124,8 @@ export default function VisionPage() {
   const [formData, setFormData] = useState({
     title: '',
     description: '',
-    category: 'personal'
+    category: 'personal',
+    imageUrl: ''
   })
   const [typeFormData, setTypeFormData] = useState({
     name: '',
@@ -168,6 +181,7 @@ export default function VisionPage() {
         title: formData.title.trim(),
         description: formData.description.trim(),
         category: normalizeType(formData.category, typeByKey),
+        imageUrl: formData.imageUrl.trim(),
         icon: editingGoal?.icon || '✨'
       }
 
@@ -177,7 +191,7 @@ export default function VisionPage() {
         await createVisionGoal(payload)
       }
 
-      setFormData({ title: '', description: '', category: 'personal' })
+      setFormData({ title: '', description: '', category: 'personal', imageUrl: '' })
       setEditingGoal(null)
       setIsModalOpen(false)
       loadGoalsAndTypes()
@@ -241,7 +255,7 @@ export default function VisionPage() {
 
   function openAddModal() {
     setEditingGoal(null)
-    setFormData({ title: '', description: '', category: 'personal' })
+    setFormData({ title: '', description: '', category: 'personal', imageUrl: '' })
     setIsModalOpen(true)
   }
 
@@ -250,7 +264,8 @@ export default function VisionPage() {
     setFormData({
       title: goal.title || '',
       description: goal.description || '',
-      category: normalizeType(goal.category, typeByKey)
+      category: normalizeType(goal.category, typeByKey),
+      imageUrl: goal.image_url || goal.imageUrl || ''
     })
     setIsModalOpen(true)
   }
@@ -422,44 +437,50 @@ export default function VisionPage() {
               ? archivedGoals.length
                 ? archivedGoals.map((goal) => {
                     const type = typeByKey[normalizeType(goal.category, typeByKey)] || typeByKey.personal
+                    const imageUrl = getGoalImageUrl(goal)
                     return (
                       <article key={goal.id} className="vision-goal-card vision-goal-card-achieved">
                         <div className="vision-achieved-ribbon">
                           <span className="vision-achieved-ribbon-text">Achieved</span>
                         </div>
-                        <div className="vision-goal-card-head">
-                          <span className="vision-goal-type-chip">{type.label}</span>
-                          <div className="vision-goal-actions">
-                            <button
-                              className="icon-btn"
-                              type="button"
-                              onClick={() => openEditModal(goal)}
-                            >
-                              ✓
-                            </button>
-                            <button
-                              className="icon-btn vision-unachieve-icon"
-                              type="button"
-                              title={t('vision.moveBackToGoals')}
-                              aria-label={t('vision.moveBackToGoals')}
-                              onClick={() => handleToggleAchieved(goal)}
-                            >
-                              ✎
-                            </button>
-                            <button
-                              className="icon-btn vision-goal-delete"
-                              type="button"
-                              onClick={() => openDeleteConfirm(goal.id)}
-                            >
-                              ✕
-                            </button>
-                          </div>
+                        <div className={`vision-goal-cover-wrap ${imageUrl ? '' : 'is-empty'}`}>
+                          {imageUrl ? <img src={imageUrl} alt={goal.title} className="vision-goal-cover" loading="lazy" /> : null}
                         </div>
-                        <h3 className="vision-goal-name">{goal.title}</h3>
-                        <p className="vision-goal-desc">{goal.description}</p>
-                        <div className="vision-goal-footer">
-                          <span />
-                          <span className="vision-achieved-date">Achieved: {goal.achieved_at ? new Date(goal.achieved_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : ''}</span>
+                        <div className="vision-goal-content">
+                          <div className="vision-goal-card-head">
+                            <span className="vision-goal-type-chip">{type.label}</span>
+                            <div className="vision-goal-actions">
+                              <button
+                                className="icon-btn"
+                                type="button"
+                                onClick={() => openEditModal(goal)}
+                              >
+                                ✎
+                              </button>
+                              <button
+                                className="icon-btn vision-unachieve-icon"
+                                type="button"
+                                title={t('vision.moveBackToGoals')}
+                                aria-label={t('vision.moveBackToGoals')}
+                                onClick={() => handleToggleAchieved(goal)}
+                              >
+                                ↩
+                              </button>
+                              <button
+                                className="icon-btn vision-goal-delete"
+                                type="button"
+                                onClick={() => openDeleteConfirm(goal.id)}
+                              >
+                                ✕
+                              </button>
+                            </div>
+                          </div>
+                          <h3 className="vision-goal-name">{goal.title}</h3>
+                          <p className="vision-goal-desc">{goal.description}</p>
+                          <div className="vision-goal-footer">
+                            <span />
+                            <span className="vision-achieved-date">Achieved: {goal.achieved_at ? new Date(goal.achieved_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : ''}</span>
+                          </div>
                         </div>
                       </article>
                     )
@@ -468,38 +489,44 @@ export default function VisionPage() {
               : activeGoals.length
                 ? activeGoals.map((goal) => {
                     const type = typeByKey[normalizeType(goal.category, typeByKey)] || typeByKey.personal
+                    const imageUrl = getGoalImageUrl(goal)
                     return (
                       <article key={goal.id} className="vision-goal-card">
-                        <div className="vision-goal-card-head">
-                          <span className="vision-goal-type-chip">{type.label}</span>
-                          <div className="vision-goal-actions">
-                            <button
-                              className="icon-btn vision-achieve-icon"
-                              type="button"
-                              title={t('vision.markAchieved')}
-                              aria-label={t('vision.markAchieved')}
-                              onClick={() => handleToggleAchieved(goal)}
-                            >
-                              ✓
-                            </button>
-                            <button
-                              className="icon-btn"
-                              type="button"
-                              onClick={() => openEditModal(goal)}
-                            >
-                              ✎
-                            </button>
-                            <button
-                              className="icon-btn vision-goal-delete"
-                              type="button"
-                              onClick={() => openDeleteConfirm(goal.id)}
-                            >
-                              ✕
-                            </button>
-                          </div>
+                        <div className={`vision-goal-cover-wrap ${imageUrl ? '' : 'is-empty'}`}>
+                          {imageUrl ? <img src={imageUrl} alt={goal.title} className="vision-goal-cover" loading="lazy" /> : null}
                         </div>
-                        <h3 className="vision-goal-name">{goal.title}</h3>
-                        <p className="vision-goal-desc">{goal.description}</p>
+                        <div className="vision-goal-content">
+                          <div className="vision-goal-card-head">
+                            <span className="vision-goal-type-chip">{type.label}</span>
+                            <div className="vision-goal-actions">
+                              <button
+                                className="icon-btn vision-achieve-icon"
+                                type="button"
+                                title={t('vision.markAchieved')}
+                                aria-label={t('vision.markAchieved')}
+                                onClick={() => handleToggleAchieved(goal)}
+                              >
+                                ✓
+                              </button>
+                              <button
+                                className="icon-btn"
+                                type="button"
+                                onClick={() => openEditModal(goal)}
+                              >
+                                ✎
+                              </button>
+                              <button
+                                className="icon-btn vision-goal-delete"
+                                type="button"
+                                onClick={() => openDeleteConfirm(goal.id)}
+                              >
+                                ✕
+                              </button>
+                            </div>
+                          </div>
+                          <h3 className="vision-goal-name">{goal.title}</h3>
+                          <p className="vision-goal-desc">{goal.description}</p>
+                        </div>
                       </article>
                     )
                   })
@@ -545,6 +572,14 @@ export default function VisionPage() {
                     <option key={type.key} value={type.key}>{type.label}</option>
                   ))}
                 </select>
+
+                <input
+                  className="input"
+                  type="url"
+                  value={formData.imageUrl}
+                  onChange={(e) => setFormData({ ...formData, imageUrl: e.target.value })}
+                  placeholder={t('vision.goalImagePlaceholder')}
+                />
 
                 <div className="modal-actions">
                   <button className="btn ghost" type="button" onClick={() => setIsModalOpen(false)}>{t('vision.cancel')}</button>

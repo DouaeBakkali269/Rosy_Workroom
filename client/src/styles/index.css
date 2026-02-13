@@ -2090,7 +2090,8 @@ body.modal-open {
 .vision-goals-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 16px;
+  gap: 18px;
+  align-items: stretch;
 }
 
 .vision-goals-grid-archived {
@@ -2098,23 +2099,58 @@ body.modal-open {
 }
 
 .vision-goal-card {
-  border: 2px solid rgba(233, 157, 186, 0.25);
+  border: 2px solid rgba(233, 157, 186, 0.45);
   background:
     linear-gradient(
       135deg,
       rgba(255, 252, 254, 0.98),
       rgba(255, 243, 249, 0.96)
     );
-  border-radius: 0;
-  padding: 22px;
+  border-radius: 24px;
+  padding: 0;
   box-shadow: 0 10px 22px rgba(213, 111, 147, 0.14);
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  min-height: 140px;
-  max-width: 370px;
-  margin: 0 auto;
+  gap: 0;
+  width: 100%;
+  max-width: none;
+  min-height: 360px;
+  height: 360px;
+  margin: 0;
   position: relative;
+  overflow: hidden;
+}
+
+.vision-goal-cover-wrap {
+  width: 100%;
+  height: 138px;
+  border-bottom: 1px solid rgba(233, 157, 186, 0.28);
+  background: rgba(255, 245, 250, 0.8);
+}
+
+.vision-goal-cover-wrap.is-empty {
+  background:
+    linear-gradient(
+      135deg,
+      rgba(255, 246, 251, 0.96),
+      rgba(252, 230, 241, 0.82)
+    );
+}
+
+.vision-goal-cover {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.vision-goal-content {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 18px 16px;
+  flex: 1;
+  min-height: 0;
 }
 
 .vision-goal-card-head {
@@ -2150,7 +2186,7 @@ body.modal-open {
 
 .vision-goal-name {
   margin: 0;
-  font-size: 17px;
+  font-size: 18px;
   line-height: 1.2;
   font-weight: 700;
   color: #6b3850;
@@ -2158,10 +2194,14 @@ body.modal-open {
 
 .vision-goal-desc {
   margin: 0;
-  font-size: 14px;
+  font-size: 13px;
   color: rgba(91, 52, 71, 0.82);
-  line-height: 1.35;
+  line-height: 1.4;
   opacity: 0.85;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .vision-goal-footer {
@@ -6085,7 +6125,7 @@ body.modal-open {
 .wishlist-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-  gap: 1.5rem;
+  gap: 14px;
   max-width: 1200px;
 }
 
@@ -6101,10 +6141,10 @@ body.modal-open {
 /* Wishlist Item Card */
 .wishlist-item-card {
   background: rgba(255, 255, 255, 0.8);
-  border-radius: 0;
-  border: 2px solid rgba(233, 157, 186, 0.7);
+  border-radius: 24px;
+  border: 2px solid rgba(233, 157, 186, 0.45);
   overflow: hidden;
-  box-shadow: 0 4px 12px rgba(213, 111, 147, 0.12);
+  box-shadow: 0 10px 22px rgba(213, 111, 147, 0.14);
   transition: all 0.3s ease;
   display: flex;
   flex-direction: column;
@@ -6120,7 +6160,7 @@ body.modal-open {
 .wishlist-item-image {
   position: relative;
   width: 100%;
-  height: 280px;
+  height: 250px;
   background: linear-gradient(135deg, rgba(233, 157, 186, 0.1), rgba(242, 169, 193, 0.1));
   overflow: hidden;
   display: flex;
@@ -6356,7 +6396,7 @@ body.modal-open {
   }
 
   .wishlist-item-image {
-    height: 280px;
+    height: 240px;
   }
 
   .wishlist-item-card {
@@ -6378,7 +6418,7 @@ body.modal-open {
   }
 
   .wishlist-item-image {
-    height: 350px;
+    height: 300px;
   }
 
   .wishlist-item-content {
