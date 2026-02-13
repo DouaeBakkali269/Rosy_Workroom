@@ -5,6 +5,7 @@ const path = require("path");
 const multer = require("multer");
 const fs = require("fs");
 const bcrypt = require("bcryptjs");
+const crypto = require("crypto");
 
 console.log("🚀 Starting Rosy Workroom Server...");
 console.log("📂 Current directory:", __dirname);
@@ -12,6 +13,11 @@ console.log("🔧 PORT:", process.env.PORT || 3000);
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const SESSION_TTL_DAYS = Number(process.env.SESSION_TTL_DAYS || 30);
+const SESSION_TTL_MS = SESSION_TTL_DAYS * 24 * 60 * 60 * 1000;
+const LOGIN_WINDOW_MS = Number(process.env.LOGIN_WINDOW_MS || 15 * 60 * 1000);
+const LOGIN_MAX_ATTEMPTS = Number(process.env.LOGIN_MAX_ATTEMPTS || 8);
+const loginAttempts = new Map();
 
 function resolvePersistentBaseDir() {
   const explicitBase = process.env.DATA_DIR || process.env.APP_DATA_DIR || null;
@@ -120,12 +126,90 @@ const profileUpload = multer({
   }
 });
 
-// Middleware to extract user_id from headers
-app.use((req, res, next) => {
-  const userId = req.headers['x-user-id']
-  req.userId = userId && userId !== '' ? parseInt(userId) : null
-  next()
-})
+function hashToken(token) {
+  return crypto.createHash("sha256").update(String(token)).digest("hex");
+}
+
+async function issueSession(userId) {
+  const token = crypto.randomBytes(32).toString("hex");
+  const tokenHash = hashToken(token);
+  const expiresAt = new Date(Date.now() + SESSION_TTL_MS).toISOString();
+  await run(
+    "INSERT INTO user_sessions (user_id, token_hash, expires_at) VALUES (?, ?, ?)",
+    [userId, tokenHash, expiresAt]
+  );
+  return { token, expiresAt };
+}
+
+async function revokeSessionByHash(tokenHash) {
+  if (!tokenHash) return;
+  await run("DELETE FROM user_sessions WHERE token_hash = ?", [tokenHash]);
+}
+
+function authAttemptKey(req, username) {
+  const forwarded = req.headers["x-forwarded-for"];
+  const ip = Array.isArray(forwarded)
+    ? forwarded[0]
+    : String(forwarded || req.ip || "unknown").split(",")[0].trim();
+  return `${String(username || "").toLowerCase()}::${ip}`;
+}
+
+function registerFailedLogin(key) {
+  const now = Date.now();
+  const existing = loginAttempts.get(key);
+  if (!existing || now > existing.resetAt) {
+    loginAttempts.set(key, { count: 1, resetAt: now + LOGIN_WINDOW_MS });
+    return;
+  }
+  existing.count += 1;
+  loginAttempts.set(key, existing);
+}
+
+function clearFailedLogin(key) {
+  loginAttempts.delete(key);
+}
+
+function isLoginRateLimited(key) {
+  const attempt = loginAttempts.get(key);
+  if (!attempt) return false;
+  const now = Date.now();
+  if (now > attempt.resetAt) {
+    loginAttempts.delete(key);
+    return false;
+  }
+  return attempt.count >= LOGIN_MAX_ATTEMPTS;
+}
+
+// Middleware to resolve authenticated user from bearer token
+app.use(async (req, res, next) => {
+  try {
+    req.userId = null;
+    req.authTokenHash = null;
+
+    const authHeader = req.headers.authorization || "";
+    let token = "";
+
+    if (typeof authHeader === "string" && authHeader.toLowerCase().startsWith("bearer ")) {
+      token = authHeader.slice(7).trim();
+    } else if (req.headers["x-auth-token"]) {
+      token = String(req.headers["x-auth-token"]).trim();
+    }
+
+    if (!token) return next();
+
+    const tokenHash = hashToken(token);
+    req.authTokenHash = tokenHash;
+    const [session] = await all(
+      "SELECT user_id FROM user_sessions WHERE token_hash = ? AND julianday(expires_at) > julianday('now') LIMIT 1",
+      [tokenHash]
+    );
+    req.userId = session ? Number(session.user_id) : null;
+    next();
+  } catch (err) {
+    console.error("Auth middleware error:", err);
+    res.status(500).json({ error: "Authentication middleware failed" });
+  }
+});
 
 // Serve static files from React build
 app.use(express.static(path.join(__dirname, "client/dist")));
@@ -402,6 +486,20 @@ async function init() {
       created_at TEXT DEFAULT CURRENT_TIMESTAMP
     )`
   );
+
+  await run(
+    `CREATE TABLE IF NOT EXISTS user_sessions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      token_hash TEXT UNIQUE NOT NULL,
+      expires_at TEXT NOT NULL,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    )`
+  );
+  await run("CREATE INDEX IF NOT EXISTS idx_user_sessions_user ON user_sessions(user_id)");
+  await run("CREATE INDEX IF NOT EXISTS idx_user_sessions_expiry ON user_sessions(expires_at)");
+  await run("DELETE FROM user_sessions WHERE julianday(expires_at) <= julianday('now')");
 
   // Migrate users table to add profile columns
   const userColumns = await all("PRAGMA table_info(users)");
@@ -810,7 +908,7 @@ async function init() {
     "SELECT id FROM projects WHERE name = ? LIMIT 1",
     ["Collab Launch Demo"]
   );
-  if (!existingDemoProject) {
+  if (!existingDemoProject && process.env.NODE_ENV !== "production") {
     const [existingAlice] = await all("SELECT id, username FROM users WHERE username = ?", ["alice"]);
     const [existingLina] = await all("SELECT id, username FROM users WHERE username = ?", ["lina"]);
 
@@ -1798,10 +1896,17 @@ app.post("/api/auth/signup", async (req, res) => {
   if (!username || !password) {
     return res.status(400).json({ error: "Username and password required" });
   }
+  const trimmedUsername = String(username).trim();
+  if (trimmedUsername.length < 3) {
+    return res.status(400).json({ error: "Username must be at least 3 characters" });
+  }
+  if (String(password).length < 8) {
+    return res.status(400).json({ error: "Password must be at least 8 characters" });
+  }
   
   try {
     // Check if username exists
-    const existing = await all("SELECT * FROM users WHERE username = ?", [username]);
+    const existing = await all("SELECT id FROM users WHERE lower(username) = lower(?)", [trimmedUsername]);
     if (existing.length > 0) {
       return res.status(400).json({ error: "Username already exists" });
     }
@@ -1809,7 +1914,7 @@ app.post("/api/auth/signup", async (req, res) => {
     const hashedPassword = await hashPassword(password);
     const result = await run(
       "INSERT INTO users (username, password, email) VALUES (?, ?, ?)",
-      [username, hashedPassword, email || null]
+      [trimmedUsername, hashedPassword, email || null]
     );
     
     const [user] = await all("SELECT id, username, email FROM users WHERE id = ?", [result.lastID]);
@@ -1827,21 +1932,31 @@ app.post("/api/auth/login", async (req, res) => {
   }
   
   try {
-    const [user] = await all("SELECT * FROM users WHERE username = ?", [username]);
+    const loginKey = authAttemptKey(req, username);
+    if (isLoginRateLimited(loginKey)) {
+      return res.status(429).json({ error: "Too many login attempts. Please try again later." });
+    }
+
+    const [user] = await all("SELECT * FROM users WHERE lower(username) = lower(?)", [String(username).trim()]);
     
     if (!user) {
+      registerFailedLogin(loginKey);
       return res.status(401).json({ error: "Invalid username or password" });
     }
 
     const isValid = await verifyPassword(password, user.password);
     if (!isValid) {
+      registerFailedLogin(loginKey);
       return res.status(401).json({ error: "Invalid username or password" });
     }
+    clearFailedLogin(loginKey);
 
     if (user.password && !isBcryptHash(user.password)) {
       const nextHash = await hashPassword(password);
       await run("UPDATE users SET password = ? WHERE id = ?", [nextHash, user.id]);
     }
+
+    const session = await issueSession(user.id);
     
     // Return user without password
     res.json({ 
@@ -1856,11 +1971,24 @@ app.post("/api/auth/login", async (req, res) => {
         created_at: user.created_at,
         joinedDate: user.joined_date || user.created_at
       },
+      token: session.token,
+      tokenExpiresAt: session.expiresAt,
       message: "Login successful"
     });
   } catch (err) {
     console.error("Login error:", err);
     res.status(500).json({ error: "Failed to login" });
+  }
+});
+
+app.post("/api/auth/logout", async (req, res) => {
+  if (!req.userId || !req.authTokenHash) return res.status(401).json({ error: "Unauthorized" });
+  try {
+    await revokeSessionByHash(req.authTokenHash);
+    res.json({ message: "Logged out" });
+  } catch (err) {
+    console.error("Logout error:", err);
+    res.status(500).json({ error: "Failed to logout" });
   }
 });
 

@@ -1,22 +1,33 @@
 const API_BASE = '/api'
 
-function getUserId() {
-  const user = localStorage.getItem('user')
-  if (user) {
-    return JSON.parse(user).id
+function getAuthToken() {
+  const raw = localStorage.getItem('auth')
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw)
+      if (parsed && typeof parsed.token === 'string' && parsed.token.trim()) {
+        return parsed.token.trim()
+      }
+    } catch {
+      // ignore malformed auth cache
+    }
   }
   return null
 }
 
 async function apiRequest(path, options = {}) {
-  const userId = getUserId()
+  const token = getAuthToken()
+  const headers = {
+    'Content-Type': 'application/json',
+    ...(options.headers || {}),
+  }
+  if (token) {
+    headers.Authorization = `Bearer ${token}`
+  }
   
   const response = await fetch(`${API_BASE}/${path}`, {
-    headers: { 
-      'Content-Type': 'application/json',
-      'X-User-ID': userId || ''
-    },
     ...options,
+    headers,
   })
 
   if (!response.ok) {
@@ -30,6 +41,8 @@ async function apiRequest(path, options = {}) {
 
   return response.json()
 }
+
+export const logout = () => apiRequest('auth/logout', { method: 'POST' })
 
 // Tasks
 export const getTasks = () => apiRequest('tasks')
@@ -108,14 +121,14 @@ export const updateProfile = (data) => apiRequest('profile', { method: 'PUT', bo
 export const updateProfilePassword = (data) => apiRequest('profile/password', { method: 'POST', body: JSON.stringify(data) })
 
 export const uploadProfileAvatar = async (file) => {
-  const userId = getUserId()
+  const token = getAuthToken()
   const formData = new FormData()
   formData.append('avatar', file)
 
   const response = await fetch(`${API_BASE}/profile/avatar`, {
     method: 'POST',
     headers: {
-      'X-User-ID': userId || ''
+      ...(token ? { Authorization: `Bearer ${token}` } : {})
     },
     body: formData
   })
@@ -129,11 +142,11 @@ export const uploadProfileAvatar = async (file) => {
 }
 
 export const deleteProfileAvatar = async () => {
-  const userId = getUserId()
+  const token = getAuthToken()
   const response = await fetch(`${API_BASE}/profile/avatar`, {
     method: 'DELETE',
     headers: {
-      'X-User-ID': userId || ''
+      ...(token ? { Authorization: `Bearer ${token}` } : {})
     }
   })
 
@@ -148,7 +161,7 @@ export const deleteProfileAvatar = async () => {
 
 // Wishlist Image Upload
 export const uploadWishlistImage = async (id, file) => {
-  const userId = getUserId()
+  const token = getAuthToken()
   const formData = new FormData()
   formData.append('image', file)
   
@@ -157,7 +170,7 @@ export const uploadWishlistImage = async (id, file) => {
   const response = await fetch(`${API_BASE}/wishlist/${id}/upload-image`, {
     method: 'POST',
     headers: {
-      'X-User-ID': userId || ''
+      ...(token ? { Authorization: `Bearer ${token}` } : {})
     },
     body: formData
   })
@@ -175,12 +188,12 @@ export const uploadWishlistImage = async (id, file) => {
 
 // Wishlist Image Delete
 export const deleteWishlistImage = async (id) => {
-  const userId = getUserId()
+  const token = getAuthToken()
   
   const response = await fetch(`${API_BASE}/wishlist/${id}/delete-image`, {
     method: 'DELETE',
     headers: {
-      'X-User-ID': userId || ''
+      ...(token ? { Authorization: `Bearer ${token}` } : {})
     }
   })
   

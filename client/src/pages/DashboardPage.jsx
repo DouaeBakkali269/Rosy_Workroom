@@ -50,6 +50,59 @@ function formatBlockLabel(block) {
   return 'Anytime'
 }
 
+function formatCurrency(value, currency = 'MAD') {
+  const numericValue = Number(value)
+  const safeValue = Number.isFinite(numericValue) ? numericValue : 0
+  return `${new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(safeValue)} ${currency}`
+}
+
+function isAllZero(data) {
+  if (!Array.isArray(data) || data.length === 0) return true
+  return data.every(month => {
+    const spent = Number(month.spending) || 0
+    const saved = Number(month.saved) || 0
+    return spent === 0 && saved === 0
+  })
+}
+
+function getLastN(data, n) {
+  if (!Array.isArray(data)) return []
+  if (!Number.isFinite(n) || n <= 0) return [...data]
+  return data.slice(Math.max(0, data.length - n))
+}
+
+function buildSmoothPath(points) {
+  if (!Array.isArray(points) || points.length === 0) return ''
+  if (points.length === 1) return `M ${points[0].x} ${points[0].y}`
+
+  let path = `M ${points[0].x} ${points[0].y}`
+  for (let i = 0; i < points.length - 1; i++) {
+    const p0 = points[i - 1] || points[i]
+    const p1 = points[i]
+    const p2 = points[i + 1]
+    const p3 = points[i + 2] || p2
+
+    const cp1x = p1.x + (p2.x - p0.x) / 6
+    let cp1y = p1.y + (p2.y - p0.y) / 6
+    const cp2x = p2.x - (p3.x - p1.x) / 6
+    let cp2y = p2.y - (p3.y - p1.y) / 6
+    const minY = Math.min(p1.y, p2.y)
+    const maxY = Math.max(p1.y, p2.y)
+
+    if (p1.y === p2.y) {
+      cp1y = p1.y
+      cp2y = p2.y
+    } else {
+      cp1y = Math.max(minY, Math.min(maxY, cp1y))
+      cp2y = Math.max(minY, Math.min(maxY, cp2y))
+    }
+
+    path += ` C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${p2.x} ${p2.y}`
+  }
+
+  return path
+}
+
 export default function DashboardPage() {
   const navigate = useNavigate()
   const { t, langKey } = useLanguage()
@@ -63,6 +116,8 @@ export default function DashboardPage() {
   const [draggedTaskId, setDraggedTaskId] = useState(null)
   const [dragOverTaskId, setDragOverTaskId] = useState(null)
   const [confirmDelete, setConfirmDelete] = useState({ isOpen: false, taskId: null, taskText: '' })
+  const [focusMode, setFocusMode] = useState(true)
+  const [activeMonthIndex, setActiveMonthIndex] = useState(null)
 
   useLockBodyScroll(confirmDelete.isOpen)
 
@@ -215,8 +270,7 @@ export default function DashboardPage() {
   }
   const dayLabel = (day) => dayLabelMap[day] || day
 
-  // Calculate monthly spending for the last 6 months
-  const getMonthlySpending = () => {
+  const getMonthlySpending = (monthsCount = 12) => {
     const now = new Date()
     const months = []
     const budgetMap = monthlyBudgets.reduce((acc, budget) => {
@@ -224,8 +278,7 @@ export default function DashboardPage() {
       return acc
     }, {})
     
-    // Generate last 6 months
-    for (let i = 5; i >= 0; i--) {
+    for (let i = monthsCount - 1; i >= 0; i--) {
       const date = new Date(now.getFullYear(), now.getMonth() - i, 1)
       months.push({
         year: date.getFullYear(),
@@ -244,7 +297,7 @@ export default function DashboardPage() {
       
       const monthData = months.find(m => m.year === txYear && m.month === txMonth)
       if (monthData) {
-        monthData.spending += tx.amount
+        monthData.spending += Number(tx.amount) || 0
       }
     })
 
@@ -255,17 +308,22 @@ export default function DashboardPage() {
     return months
   }
 
-  const monthlyData = getMonthlySpending()
-  const chartMaxValue = Math.max(
-    ...monthlyData.map(m => Math.max(m.spending, m.saved ?? 0)),
-    1
-  )
+  const allMonthlyData = getMonthlySpending(12)
+  const monthlyData = focusMode ? getLastN(allMonthlyData, 6) : allMonthlyData
+  const hasNoMoneyData = isAllZero(allMonthlyData)
+  const dataMax = Math.max(...monthlyData.map(m => Math.max(m.spending, m.saved ?? 0)), 0)
+  const chartMaxValue = dataMax > 0 ? dataMax * 1.15 : 1
   const chartWidth = 100
   const chartHeight = 44
   const toY = (value) => chartHeight - (value / chartMaxValue) * chartHeight
   const toX = (index) => (monthlyData.length <= 1 ? 0 : (index / (monthlyData.length - 1)) * chartWidth)
-  const spentPoints = monthlyData.map((month, index) => `${toX(index)},${toY(month.spending)}`).join(' ')
-  const savedPoints = monthlyData.map((month, index) => `${toX(index)},${toY(month.saved ?? 0)}`).join(' ')
+  const spentPlotPoints = monthlyData.map((month, index) => ({ x: toX(index), y: toY(month.spending) }))
+  const savedPlotPoints = monthlyData.map((month, index) => ({ x: toX(index), y: toY(month.saved ?? 0) }))
+  const spentPath = buildSmoothPath(spentPlotPoints)
+  const savedPath = buildSmoothPath(savedPlotPoints)
+  const savedAreaPath = savedPlotPoints.length > 0
+    ? `${savedPath} L ${savedPlotPoints[savedPlotPoints.length - 1].x} ${chartHeight} L ${savedPlotPoints[0].x} ${chartHeight} Z`
+    : ''
 
   const todayIndex = getTodayIndex()
   const todayTasks = weekPlan[todayIndex]?.tasks || []
@@ -350,38 +408,72 @@ export default function DashboardPage() {
           <div className="card-title">{t('dashboard.moneySnapshot')}</div>
           <div className="money-line-chart-wrap">
             <div className="money-line-legend">
-              <span className="money-legend-item">
-                <span className="money-legend-dot money-legend-dot-spent"></span>
-                {t('dashboard.spent')}
-              </span>
-              <span className="money-legend-item">
-                <span className="money-legend-dot money-legend-dot-saved"></span>
-                {t('dashboard.saved')}
-              </span>
+              <div className="money-legend-items">
+                <span className="money-legend-item">
+                  <span className="money-legend-dot money-legend-dot-spent"></span>
+                  {t('dashboard.spent')}
+                </span>
+                <span className="money-legend-item">
+                  <span className="money-legend-dot money-legend-dot-saved"></span>
+                  {t('dashboard.saved')}
+                </span>
+              </div>
+              <button
+                className="btn ghost money-focus-toggle"
+                type="button"
+                onClick={() => setFocusMode(current => !current)}
+              >
+                {focusMode ? 'Show all' : 'Focus: last 6'}
+              </button>
             </div>
             <div className="money-line-chart-container">
-              <svg className="money-line-chart" viewBox={`0 0 ${chartWidth} ${chartHeight}`} preserveAspectRatio="none" aria-label={t('dashboard.moneyTrendAria')}>
+              <svg className="money-line-chart" viewBox={`0 0 ${chartWidth} ${chartHeight}`} preserveAspectRatio="xMidYMid meet" aria-label={t('dashboard.moneyTrendAria')}>
                 <line x1="0" y1={chartHeight} x2={chartWidth} y2={chartHeight} className="money-line-axis" />
-                <polyline className="money-line spent-line" points={spentPoints}></polyline>
-                <polyline className="money-line saved-line" points={savedPoints}></polyline>
-                {monthlyData.map((month, idx) => (
-                  <g key={idx}>
-                    <circle className="money-point spent-point" cx={toX(idx)} cy={toY(month.spending)} r="1.6">
-                      <title>{`${month.name} ${t('dashboard.spent')}: ${month.spending.toFixed(0)} MAD`}</title>
-                    </circle>
-                    <circle className="money-point saved-point" cx={toX(idx)} cy={toY(month.saved ?? 0)} r="1.6">
-                      <title>{`${month.name} ${t('dashboard.saved')}: ${(month.saved ?? 0).toFixed(0)} MAD`}</title>
-                    </circle>
-                  </g>
-                ))}
+                {!hasNoMoneyData && (
+                  <>
+                    <path
+                      className="money-area saved-area"
+                      d={savedAreaPath}
+                      fill="#73b58e"
+                      fillOpacity="0.2"
+                      stroke="none"
+                    />
+                    <path className="money-line saved-line" d={savedPath}></path>
+                    <path className="money-line spent-line" d={spentPath}></path>
+                    {monthlyData.map((month, idx) => (
+                      <g
+                        key={idx}
+                        onMouseEnter={() => setActiveMonthIndex(idx)}
+                        onMouseLeave={() => setActiveMonthIndex(null)}
+                      >
+                        <title>{`${month.name}\n${t('dashboard.spent')}: ${formatCurrency(month.spending, 'MAD')}\n${t('dashboard.saved')}: ${formatCurrency(month.saved ?? 0, 'MAD')}`}</title>
+                        <circle
+                          className="money-point spent-point"
+                          cx={toX(idx)}
+                          cy={toY(month.spending)}
+                          r={activeMonthIndex === idx ? 3.5 : 1.6}
+                        />
+                        <circle
+                          className="money-point saved-point"
+                          cx={toX(idx)}
+                          cy={toY(month.saved ?? 0)}
+                          r={activeMonthIndex === idx ? 3.5 : 1.6}
+                        />
+                      </g>
+                    ))}
+                  </>
+                )}
               </svg>
+              {hasNoMoneyData && (
+                <div className="empty-state">No transactions yet - add your first one to see your money bloom 🌸</div>
+              )}
             </div>
             <div className="money-month-grid">
               {monthlyData.map((month, idx) => (
                 <div key={idx} className="money-month-item">
                   <div className="month-label">{month.name}</div>
-                  <div className="month-amount">{t('dashboard.monthSpent')}: {month.spending.toFixed(0)} MAD</div>
-                  <div className="month-amount month-saved">{t('dashboard.monthSaved')}: {(month.saved ?? 0).toFixed(0)} MAD</div>
+                  <div className="month-amount">{t('dashboard.monthSpent')}: {formatCurrency(month.spending, 'MAD')}</div>
+                  <div className="month-amount month-saved">{t('dashboard.monthSaved')}: {formatCurrency(month.saved ?? 0, 'MAD')}</div>
                 </div>
               ))}
             </div>

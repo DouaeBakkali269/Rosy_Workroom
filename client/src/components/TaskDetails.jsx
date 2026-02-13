@@ -76,6 +76,8 @@ export default function TaskDetails({ card, collaborators = [], onClose, onUpdat
   const [draggedChecklistId, setDraggedChecklistId] = useState(null)
   const [dragOverChecklistId, setDragOverChecklistId] = useState(null)
   const [draggedChecklistGroupId, setDraggedChecklistGroupId] = useState(null)
+  const [draggedAttachmentId, setDraggedAttachmentId] = useState(null)
+  const [dragOverAttachmentId, setDragOverAttachmentId] = useState(null)
   const [showTags, setShowTags] = useState(false)
   const [showChecklist, setShowChecklist] = useState(false)
   const [showAttachments, setShowAttachments] = useState(false)
@@ -121,6 +123,8 @@ export default function TaskDetails({ card, collaborators = [], onClose, onUpdat
     setDraggedChecklistId(null)
     setDragOverChecklistId(null)
     setDraggedChecklistGroupId(null)
+    setDraggedAttachmentId(null)
+    setDragOverAttachmentId(null)
     setShowTags(false)
     setShowChecklist(false)
     setShowAttachments(false)
@@ -257,6 +261,29 @@ export default function TaskDetails({ card, collaborators = [], onClose, onUpdat
     setChecklistGroups(updatedGroups)
     await handleSave({ checklistGroups: updatedGroups })
     if (onRefresh) onRefresh()
+  }
+
+  async function handleAttachmentReorder(targetId) {
+    if (!draggedAttachmentId || draggedAttachmentId === targetId) return
+    const items = [...attachments]
+    const fromIndex = items.findIndex(item => item.id === draggedAttachmentId)
+    const toIndex = items.findIndex(item => item.id === targetId)
+    if (fromIndex === -1 || toIndex === -1) return
+    const [moved] = items.splice(fromIndex, 1)
+    items.splice(toIndex, 0, moved)
+    setAttachments(items)
+    await handleSave({ attachments: items })
+  }
+
+  async function handleAttachmentDropToEnd() {
+    if (!draggedAttachmentId) return
+    const items = [...attachments]
+    const fromIndex = items.findIndex(item => item.id === draggedAttachmentId)
+    if (fromIndex === -1) return
+    const [moved] = items.splice(fromIndex, 1)
+    items.push(moved)
+    setAttachments(items)
+    await handleSave({ attachments: items })
   }
 
   function removeChecklistItem(groupId, item) {
@@ -605,6 +632,10 @@ export default function TaskDetails({ card, collaborators = [], onClose, onUpdat
                 className="task-description editor"
                 contentEditable
                 suppressContentEditableWarning
+                spellCheck={false}
+                autoCorrect="off"
+                autoCapitalize="off"
+                data-gramm="false"
                 ref={descriptionRef}
                 onInput={(e) => {
                   const html = e.currentTarget.innerHTML
@@ -629,7 +660,7 @@ export default function TaskDetails({ card, collaborators = [], onClose, onUpdat
 
           {(attachments.length > 0 || showAttachments) && (
             <div className="task-section">
-              <div className="task-section-row">
+              <div className="task-section-row attachment-section-row">
                 <h4 className="task-section-title">{t('task.attachments')}</h4>
                 {attachments.length > 0 && !showAttachments && (
                   <button
@@ -642,9 +673,39 @@ export default function TaskDetails({ card, collaborators = [], onClose, onUpdat
                 )}
               </div>
               {attachments.length > 0 && (
-                <div className="attachment-list">
+                <div
+                  className="attachment-list"
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={async (e) => {
+                    e.preventDefault()
+                    await handleAttachmentDropToEnd()
+                    setDraggedAttachmentId(null)
+                    setDragOverAttachmentId(null)
+                  }}
+                >
                   {attachments.map(item => (
-                    <div key={item.id} className="attachment-item">
+                    <div
+                      key={item.id}
+                      className={`attachment-item ${dragOverAttachmentId === item.id ? 'drag-over' : ''}`}
+                      draggable
+                      onDragStart={() => setDraggedAttachmentId(item.id)}
+                      onDragOver={(e) => {
+                        e.preventDefault()
+                        if (dragOverAttachmentId !== item.id) setDragOverAttachmentId(item.id)
+                      }}
+                      onDragLeave={() => setDragOverAttachmentId(null)}
+                      onDrop={async (e) => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        await handleAttachmentReorder(item.id)
+                        setDraggedAttachmentId(null)
+                        setDragOverAttachmentId(null)
+                      }}
+                      onDragEnd={() => {
+                        setDraggedAttachmentId(null)
+                        setDragOverAttachmentId(null)
+                      }}
+                    >
                       <a href={item.url} target="_blank" rel="noreferrer">
                         {item.label || item.url}
                       </a>
@@ -686,6 +747,12 @@ export default function TaskDetails({ card, collaborators = [], onClose, onUpdat
                     type="text"
                     value={newChecklistName}
                     onChange={(e) => setNewChecklistName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault()
+                        handleAddChecklistGroup()
+                      }
+                    }}
                     placeholder={t('task.newChecklistName')}
                   />
                   <button className="btn ghost" type="button" onClick={handleAddChecklistGroup}>
