@@ -1,32 +1,36 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { getWeekPlanHistory } from '../services/api'
+import { useLanguage } from '../context/LanguageContext'
 
 const isWeekKey = (value) => /^\d{4}-\d{2}-\d{2}$/.test(value)
 
-function formatWeekRange(weekKey) {
+function formatWeekRange(weekKey, locale) {
   if (!weekKey || !isWeekKey(weekKey)) return weekKey || ''
   const [year, month, day] = weekKey.split('-').map(Number)
   const start = new Date(year, month - 1, day)
   const end = new Date(start)
   end.setDate(start.getDate() + 6)
-  const startLabel = start.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
-  const endLabel = end.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+  const startLabel = start.toLocaleDateString(locale, { month: 'short', day: 'numeric' })
+  const endLabel = end.toLocaleDateString(locale, { month: 'short', day: 'numeric', year: 'numeric' })
   return `${startLabel} - ${endLabel}`
 }
 
-function formatWeekStamp(value) {
+function formatWeekStamp(value, locale) {
   if (!value) return ''
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return ''
-  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+  return date.toLocaleDateString(locale, { month: 'short', day: 'numeric' })
 }
 
 export default function WeekHistoryPage() {
+  const { t, langKey } = useLanguage()
   const [weeks, setWeeks] = useState([])
   const [currentWeekKey, setCurrentWeekKey] = useState('')
   const [isLoading, setIsLoading] = useState(true)
   const navigate = useNavigate()
+  const localeByLang = { en: 'en-US', fr: 'fr-FR', de: 'de-DE' }
+  const locale = localeByLang[langKey] || 'en-US'
 
   useEffect(() => {
     loadHistory()
@@ -58,18 +62,18 @@ export default function WeekHistoryPage() {
     <section className="page-section active">
       <div className="section-header week-planner-header">
         <div>
-          <h2>Weekly Planner History</h2>
-          <p className="week-range">Browse and reopen past weeks</p>
+          <h2>{t('history.title')}</h2>
+          <p className="week-range">{t('history.subtitle')}</p>
         </div>
-        <button className="btn ghost" onClick={() => navigate('/week-planner')}>Back to planner</button>
+        <button className="btn ghost" onClick={() => navigate('/week-planner')}>{t('history.backToPlanner')}</button>
       </div>
 
       <div className="week-history-page">
         {isLoading ? (
-          <p className="week-loading">Loading history...</p>
+          <p className="week-loading">{t('history.loading')}</p>
         ) : weeks.length === 0 ? (
           <div className="history-empty-state">
-            <p>No past weeks yet.</p>
+            <p>{t('week.noPastWeeks')}</p>
           </div>
         ) : (
           <div className="history-list history-list-full">
@@ -79,12 +83,12 @@ export default function WeekHistoryPage() {
                 className={`history-item ${week.week_key === currentWeekKey ? 'active' : ''}`}
                 onClick={() => openWeek(week.week_key)}
               >
-                <span className="history-range">{formatWeekRange(week.week_key)}</span>
+                <span className="history-range">{formatWeekRange(week.week_key, locale)}</span>
                 {week.week_key === currentWeekKey && (
-                  <span className="history-tag">Current</span>
+                  <span className="history-tag">{t('week.current')}</span>
                 )}
                 <span className="history-meta">
-                  Updated {formatWeekStamp(week.updated_at || week.created_at)}
+                  {t('week.updated')} {formatWeekStamp(week.updated_at || week.created_at, locale)}
                 </span>
               </button>
             ))}

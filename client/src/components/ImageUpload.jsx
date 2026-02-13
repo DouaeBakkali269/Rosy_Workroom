@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react'
+import { useLanguage } from '../context/LanguageContext'
 
 export default function ImageUpload({ onImageSelect, currentImage, onRemoveImage }) {
+  const { t } = useLanguage()
   const [dragActive, setDragActive] = useState(false)
   const [preview, setPreview] = useState(null)
 
@@ -43,13 +45,13 @@ export default function ImageUpload({ onImageSelect, currentImage, onRemoveImage
     // Validate file type
     const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
     if (!allowedTypes.includes(file.type)) {
-      alert('Please upload an image file (JPG, PNG, GIF, or WebP)')
+      alert(t('upload.invalidType'))
       return
     }
 
     // Validate file size (5MB max)
     if (file.size > 5 * 1024 * 1024) {
-      alert('File size must be less than 5MB')
+      alert(t('upload.tooLarge'))
       return
     }
 
@@ -71,12 +73,12 @@ export default function ImageUpload({ onImageSelect, currentImage, onRemoveImage
     <div className="image-upload-container">
       {preview ? (
         <div className="image-preview">
-          <img src={preview} alt="Preview" className="preview-img" />
+          <img src={preview} alt={t('wishlist.previewAlt')} className="preview-img" />
           <button
             type="button"
             className="btn-remove-image"
             onClick={handleRemove}
-            title="Remove image"
+            title={t('wishlist.removeImage')}
           >
             ✕
           </button>
@@ -91,9 +93,9 @@ export default function ImageUpload({ onImageSelect, currentImage, onRemoveImage
         >
           <div className="drag-drop-content">
             <span className="drag-drop-icon">📸</span>
-            <p>Drag and drop your image here or</p>
+            <p>{t('upload.dragDrop')}</p>
             <label className="drag-drop-label">
-              click to select
+              {t('upload.clickSelect')}
               <input
                 type="file"
                 accept="image/*"
@@ -101,7 +103,7 @@ export default function ImageUpload({ onImageSelect, currentImage, onRemoveImage
                 style={{ display: 'none' }}
               />
             </label>
-            <span className="drag-drop-hint">Max 5MB (JPG, PNG, GIF, WebP)</span>
+            <span className="drag-drop-hint">{t('upload.maxHint')}</span>
           </div>
         </div>
       )}

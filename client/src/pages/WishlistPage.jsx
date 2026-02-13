@@ -4,6 +4,7 @@ import ModalPortal from '../components/ModalPortal'
 import ImageUpload from '../components/ImageUpload'
 import WishlistItem from '../components/WishlistItem'
 import ConfirmModal from '../components/ConfirmModal'
+import { useLanguage } from '../context/LanguageContext'
 import { 
   getWishlist, 
   createWishlistItem, 
@@ -14,6 +15,7 @@ import {
 } from '../services/api'
 
 export default function WishlistPage() {
+  const { t } = useLanguage()
   const [wishlist, setWishlist] = useState([])
   const [purchased, setPurchased] = useState([])
   const [isModalOpen, setIsModalOpen] = useState(false)
@@ -93,7 +95,7 @@ export default function WishlistPage() {
           console.log('Image uploaded, item data:', itemData)
         } catch (err) {
           console.error('Image upload failed:', err)
-          alert('Item saved but image upload failed')
+          alert(t('wishlist.imageUploadFailed'))
         }
       }
 
@@ -105,7 +107,7 @@ export default function WishlistPage() {
       loadItems()
     } catch (error) {
       console.error('Failed to save wishlist item:', error)
-      alert('Failed to save item. Please try again.')
+      alert(t('wishlist.saveFailed'))
     } finally {
       setIsSubmitting(false)
     }
@@ -116,7 +118,7 @@ export default function WishlistPage() {
     setConfirmDelete({ 
       isOpen: true, 
       itemId: id, 
-      itemName: item?.item || 'this item' 
+      itemName: item?.item || t('wishlist.thisItem') 
     })
   }
 
@@ -159,8 +161,8 @@ export default function WishlistPage() {
   return (
     <section className="page-section active">
       <div className="section-header">
-        <h2>Wishlist & Purchases</h2>
-        <button className="btn primary" onClick={openAddModal}>Add item</button>
+        <h2>{t('wishlist.title')}</h2>
+        <button className="btn primary" onClick={openAddModal}>{t('wishlist.addItem')}</button>
       </div>
 
       {isModalOpen && (
@@ -168,7 +170,7 @@ export default function WishlistPage() {
           <div className="modal-overlay" onClick={() => !isSubmitting && setIsModalOpen(false)}>
             <div className="modal-content" onClick={(e) => e.stopPropagation()}>
               <div className="modal-header">
-                <h3>{editingItem ? 'Edit Wishlist Item' : 'Add Wishlist Item'}</h3>
+                <h3>{editingItem ? t('wishlist.editItemTitle') : t('wishlist.addItemTitle')}</h3>
                 <button 
                   className="modal-close" 
                   onClick={() => !isSubmitting && setIsModalOpen(false)}
@@ -183,7 +185,7 @@ export default function WishlistPage() {
                   type="text"
                   value={formData.item}
                   onChange={(e) => setFormData({ ...formData, item: e.target.value })}
-                  placeholder="Item name"
+                  placeholder={t('wishlist.itemNamePlaceholder')}
                   required
                   disabled={isSubmitting}
                 />
@@ -192,7 +194,7 @@ export default function WishlistPage() {
                   type="text"
                   value={formData.price}
                   onChange={(e) => setFormData({ ...formData, price: e.target.value })}
-                  placeholder="Price (e.g., $50)"
+                  placeholder={t('wishlist.pricePlaceholder')}
                   disabled={isSubmitting}
                 />
 
@@ -211,14 +213,14 @@ export default function WishlistPage() {
                     onClick={() => setIsModalOpen(false)}
                     disabled={isSubmitting}
                   >
-                    Cancel
+                    {t('common.cancel')}
                   </button>
                   <button 
                     className="btn primary" 
                     type="submit"
                     disabled={isSubmitting}
                   >
-                    {isSubmitting ? 'Saving...' : (editingItem ? 'Update' : 'Add')} Item
+                    {isSubmitting ? t('wishlist.saving') : (editingItem ? t('wishlist.update') : t('wishlist.add'))}
                   </button>
                 </div>
               </form>
@@ -229,10 +231,10 @@ export default function WishlistPage() {
 
       <div className="wishlist-sections">
         <div className="wishlist-section">
-          <div className="section-title">Wishlist</div>
+          <div className="section-title">{t('wishlist.wishlistSection')}</div>
           {wishlist.length === 0 ? (
             <div className="empty-state">
-              <p>No items in your wishlist yet. Start adding!</p>
+              <p>{t('wishlist.wishlistEmpty')}</p>
             </div>
           ) : (
             <div className="wishlist-grid">
@@ -251,10 +253,10 @@ export default function WishlistPage() {
         </div>
 
         <div className="wishlist-section">
-          <div className="section-title">Purchased</div>
+          <div className="section-title">{t('wishlist.purchasedSection')}</div>
           {purchased.length === 0 ? (
             <div className="empty-state">
-              <p>No purchased items yet.</p>
+              <p>{t('wishlist.purchasedEmpty')}</p>
             </div>
           ) : (
             <div className="wishlist-grid">
@@ -277,16 +279,16 @@ export default function WishlistPage() {
         isOpen={confirmDelete.isOpen}
         onConfirm={confirmDeleteItem}
         onCancel={() => setConfirmDelete({ isOpen: false, itemId: null, itemName: '' })}
-        title="Delete Item"
-        message={`Are you sure you want to delete "${confirmDelete.itemName}"? This action cannot be undone.`}
+        title={t('wishlist.deleteTitle')}
+        message={t('wishlist.deleteMessage').replace('{item}', confirmDelete.itemName)}
       />
 
       <ConfirmModal
         isOpen={confirmImageDelete.isOpen}
         onConfirm={confirmRemoveImage}
         onCancel={() => setConfirmImageDelete({ isOpen: false, itemId: null })}
-        title="Remove Image"
-        message="Are you sure you want to remove this image?"
+        title={t('wishlist.removeImageTitle')}
+        message={t('wishlist.removeImageMessage')}
       />
     </section>
   )

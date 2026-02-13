@@ -1,35 +1,35 @@
 import { NavLink, useNavigate, useLocation } from 'react-router-dom'
-import { useState } from 'react'
+import { useLanguage } from '../context/LanguageContext'
 
 export default function Navbar({ user, onLogout }) {
   const navigate = useNavigate()
   const location = useLocation()
-  const [showProfileMenu, setShowProfileMenu] = useState(false)
+  const { t } = useLanguage()
   
   const navItems = [
-    { id: 'dashboard', path: '/dashboard', label: 'Dashboard', mobile: 'Dash' },
-    { id: 'week-planner', path: '/week-planner', label: 'Week Planner', mobile: 'Week' },
-    { id: 'projects', path: '/projects', label: 'Projects', mobile: 'Proj' },
-    { id: 'money', path: '/money', label: 'Money', mobile: 'Money' },
-    { id: 'notes', path: '/notes', label: 'Notes', mobile: 'Notes' },
-    { id: 'wishlist', path: '/wishlist', label: 'Wishlist', mobile: 'Wish' },
-    { id: 'vision', path: '/vision', label: 'Vision 2026', mobile: 'Vision' }
+    { id: 'dashboard', path: '/dashboard', label: t('nav.dashboard'), mobile: t('nav.dashboard') },
+    { id: 'week-planner', path: '/week-planner', label: t('nav.weekPlanner'), mobile: t('nav.weekPlanner') },
+    { id: 'projects', path: '/projects', label: t('nav.projects'), mobile: t('nav.projects') },
+    { id: 'money', path: '/money', label: t('nav.money'), mobile: t('nav.money') },
+    { id: 'notes', path: '/notes', label: t('nav.notes'), mobile: t('nav.notes') },
+    { id: 'wishlist', path: '/wishlist', label: t('nav.wishlist'), mobile: t('nav.wishlist') },
+    { id: 'vision', path: '/vision', label: t('nav.vision'), mobile: t('nav.vision') },
+    { id: 'profile', path: '/profile', label: t('nav.profile'), mobile: t('nav.profile') }
   ]
 
   // Mobile bottom tabs configuration
   const mobileTabs = [
-    { id: 'dashboard', label: 'Dashboard', path: '/dashboard' },
-    { id: 'week-planner', label: 'Week Planner', path: '/week-planner' },
-    { id: 'projects', label: 'Projects', path: '/projects' },
-    { id: 'money', label: 'Money', path: '/money' },
-    { id: 'notes', label: 'Notes', path: '/notes' },
-    { id: 'wishlist', label: 'Wishlist', path: '/wishlist' },
-    { id: 'vision', label: 'Vision 2026', path: '/vision' },
-    { id: 'profile', label: 'Profile', path: null }
+    { id: 'dashboard', label: t('nav.dashboard'), path: '/dashboard' },
+    { id: 'week-planner', label: t('nav.weekPlanner'), path: '/week-planner' },
+    { id: 'projects', label: t('nav.projects'), path: '/projects' },
+    { id: 'money', label: t('nav.money'), path: '/money' },
+    { id: 'notes', label: t('nav.notes'), path: '/notes' },
+    { id: 'wishlist', label: t('nav.wishlist'), path: '/wishlist' },
+    { id: 'vision', label: t('nav.vision'), path: '/vision' },
+    { id: 'profile', label: t('nav.profile'), path: '/profile' }
   ]
 
   const handleLogout = () => {
-    setShowProfileMenu(false)
     onLogout()
     navigate('/')
   }
@@ -58,14 +58,11 @@ export default function Navbar({ user, onLogout }) {
 
         {user && (
           <div className="navbar-footer">
-            <span className="pill navbar-user-pill">
-              👧🏻 {user.username}
-            </span>
             <button 
               className="btn ghost navbar-logout-btn" 
               onClick={handleLogout}
             >
-              Logout
+              {t('nav.logout')}
             </button>
           </div>
         )}
@@ -84,41 +81,16 @@ export default function Navbar({ user, onLogout }) {
             </button>
             {mobileTabs.map(tab => (
               <div key={tab.id}>
-                {tab.id !== 'profile' ? (
-                  <button
-                    className={`mobile-tab ${location.pathname === tab.path ? 'active' : ''}`}
-                    onClick={() => navigate(tab.path)}
-                    title={tab.label}
-                  >
-                    {tab.label}
-                  </button>
-                ) : (
-                  <div className="mobile-tab-profile">
-                    <button
-                      className={`mobile-tab profile-btn ${showProfileMenu ? 'active' : ''}`}
-                      onClick={() => setShowProfileMenu(!showProfileMenu)}
-                      title={tab.label}
-                    >
-                      {tab.label}
-                    </button>
-                  </div>
-                )}
+                <button
+                  className={`mobile-tab ${location.pathname === tab.path ? 'active' : ''}`}
+                  onClick={() => navigate(tab.path)}
+                  title={tab.label}
+                >
+                  {tab.label}
+                </button>
               </div>
             ))}
           </div>
-          {showProfileMenu && (
-            <div className="profile-menu-mobile-fixed">
-              <div className="profile-menu-header">
-                👧🏻 {user.username}
-              </div>
-              <button
-                className="profile-menu-logout"
-                onClick={handleLogout}
-              >
-                Logout
-              </button>
-            </div>
-          )}
         </nav>
       )}
     </>

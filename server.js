@@ -4,6 +4,7 @@ const sqlite3 = require("sqlite3").verbose();
 const path = require("path");
 const multer = require("multer");
 const fs = require("fs");
+const bcrypt = require("bcryptjs");
 
 console.log("🚀 Starting Rosy Workroom Server...");
 console.log("📂 Current directory:", __dirname);
@@ -69,6 +70,8 @@ if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
 
+const allowedImageMimes = ["image/jpeg", "image/png", "image/gif", "image/webp"];
+
 // Configure multer for file uploads
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
@@ -86,8 +89,30 @@ const upload = multer({
   limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
   fileFilter: (req, file, cb) => {
     // Only allow image files
-    const allowedMimes = ["image/jpeg", "image/png", "image/gif", "image/webp"];
-    if (allowedMimes.includes(file.mimetype)) {
+    if (allowedImageMimes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error("Only image files are allowed"));
+    }
+  }
+});
+
+const profileStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, uploadsDir);
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
+    const ext = path.extname(file.originalname);
+    cb(null, "profile-" + uniqueSuffix + ext);
+  }
+});
+
+const profileUpload = multer({
+  storage: profileStorage,
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (allowedImageMimes.includes(file.mimetype)) {
       cb(null, true);
     } else {
       cb(new Error("Only image files are allowed"));
@@ -126,6 +151,105 @@ function all(sql, params = []) {
   });
 }
 
+function parseJsonArray(raw) {
+  if (!raw) return [];
+  try {
+    const value = JSON.parse(raw);
+    return Array.isArray(value) ? value : [];
+  } catch {
+    return [];
+  }
+}
+
+function isBcryptHash(value) {
+  return typeof value === "string" && /^\$2[aby]\$/.test(value);
+}
+
+async function hashPassword(rawPassword) {
+  const saltRounds = 10;
+  return bcrypt.hash(rawPassword, saltRounds);
+}
+
+async function verifyPassword(rawPassword, storedPassword) {
+  if (!storedPassword) return false;
+  if (isBcryptHash(storedPassword)) {
+    return bcrypt.compare(rawPassword, storedPassword);
+  }
+  return rawPassword === storedPassword;
+}
+
+async function removeUploadFile(fileUrl) {
+  if (!fileUrl) return;
+  const fileName = path.basename(fileUrl);
+  const fullPath = path.join(uploadsDir, fileName);
+  try {
+    if (fs.existsSync(fullPath)) {
+      await fs.promises.unlink(fullPath);
+    }
+  } catch (err) {
+    console.error("⚠️  Failed to remove upload:", err.message);
+  }
+}
+
+function normalizeUsernameArray(raw) {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set();
+  const result = [];
+  for (const item of raw) {
+    const name = String(item || "").trim();
+    if (!name) continue;
+    const lower = name.toLowerCase();
+    if (seen.has(lower)) continue;
+    seen.add(lower);
+    result.push(name);
+  }
+  return result;
+}
+
+async function resolveExistingUsernames(usernames) {
+  const normalized = normalizeUsernameArray(usernames);
+  if (!normalized.length) return { resolved: [], missing: [] };
+
+  const placeholders = normalized.map(() => "?").join(", ");
+  const rows = await all(
+    `SELECT username FROM users WHERE lower(username) IN (${placeholders})`,
+    normalized.map((name) => name.toLowerCase())
+  );
+
+  const existingByLower = new Map(rows.map((row) => [row.username.toLowerCase(), row.username]));
+  const resolved = [];
+  const missing = [];
+
+  for (const name of normalized) {
+    const lower = name.toLowerCase();
+    const canonical = existingByLower.get(lower);
+    if (!canonical) {
+      missing.push(name);
+      continue;
+    }
+    resolved.push(canonical);
+  }
+
+  return { resolved, missing };
+}
+
+async function getCurrentUser(req) {
+  if (!req.userId) return null;
+  const [user] = await all("SELECT id, username, email, created_at FROM users WHERE id = ?", [req.userId]);
+  return user || null;
+}
+
+async function canAccessProject(projectId, req) {
+  if (!projectId) return false;
+  const user = await getCurrentUser(req);
+  if (!user) return false;
+  const [project] = await all("SELECT id, user_id, members FROM projects WHERE id = ?", [projectId]);
+  if (!project) return false;
+  if (project.user_id === req.userId) return true;
+  const members = parseJsonArray(project.members).map(name => String(name).toLowerCase());
+  return members.includes(String(user.username).toLowerCase());
+}
+
 function formatDateLocal(date) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -160,6 +284,7 @@ async function init() {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,
       tags TEXT,
+      members TEXT,
       dueDate TEXT,
       description TEXT,
       taskCount INTEGER DEFAULT 0
@@ -186,7 +311,24 @@ async function init() {
       dueDate TEXT,
       description TEXT,
       amount REAL DEFAULT 0,
+      position INTEGER DEFAULT 0,
+      tags TEXT,
+      priority TEXT,
+      assignees TEXT,
+      attachments TEXT,
+      checklist_groups TEXT,
       FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+    )`
+  );
+
+  await run(
+    `CREATE TABLE IF NOT EXISTS kanban_columns (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      key TEXT NOT NULL,
+      name TEXT NOT NULL,
+      position INTEGER DEFAULT 0,
+      user_id INTEGER,
+      UNIQUE(key, user_id)
     )`
   );
 
@@ -218,6 +360,11 @@ async function init() {
       title TEXT NOT NULL,
       description TEXT NOT NULL,
       icon TEXT DEFAULT '✨',
+      category TEXT DEFAULT 'personal',
+      achieved INTEGER DEFAULT 0,
+      archived INTEGER DEFAULT 0,
+      achieved_at TEXT,
+      user_id INTEGER,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP
     )`
   );
@@ -256,6 +403,33 @@ async function init() {
     )`
   );
 
+  // Migrate users table to add profile columns
+  const userColumns = await all("PRAGMA table_info(users)");
+  const userExisting = new Set(userColumns.map((col) => col.name));
+  const userMigrations = [
+    { name: "display_name", sql: "ALTER TABLE users ADD COLUMN display_name TEXT" },
+    { name: "focus", sql: "ALTER TABLE users ADD COLUMN focus TEXT" },
+    { name: "bio", sql: "ALTER TABLE users ADD COLUMN bio TEXT" },
+    { name: "mantra", sql: "ALTER TABLE users ADD COLUMN mantra TEXT" },
+    { name: "birthday", sql: "ALTER TABLE users ADD COLUMN birthday TEXT" },
+    { name: "theme_mood", sql: "ALTER TABLE users ADD COLUMN theme_mood TEXT" },
+    { name: "language", sql: "ALTER TABLE users ADD COLUMN language TEXT" },
+    { name: "avatar_url", sql: "ALTER TABLE users ADD COLUMN avatar_url TEXT" },
+    { name: "joined_date", sql: "ALTER TABLE users ADD COLUMN joined_date TEXT" }
+  ];
+
+  for (const migration of userMigrations) {
+    if (!userExisting.has(migration.name)) {
+      await run(migration.sql);
+    }
+  }
+
+  if (!userExisting.has("joined_date")) {
+    await run("UPDATE users SET joined_date = created_at WHERE joined_date IS NULL");
+  } else {
+    await run("UPDATE users SET joined_date = created_at WHERE joined_date IS NULL");
+  }
+
   const columns = await all("PRAGMA table_info(kanban_cards)");
   const existing = new Set(columns.map((col) => col.name));
 
@@ -271,6 +445,12 @@ async function init() {
         dueDate TEXT,
         description TEXT,
         amount REAL DEFAULT 0,
+        position INTEGER DEFAULT 0,
+        tags TEXT,
+        priority TEXT,
+        assignees TEXT,
+        attachments TEXT,
+        checklist_groups TEXT,
         FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
       )`
     );
@@ -284,10 +464,16 @@ async function init() {
       existing.has("dueDate") ? "dueDate" : "NULL as dueDate",
       existing.has("description") ? "description" : "NULL as description",
       existing.has("amount") ? "amount" : "0 as amount",
+      existing.has("position") ? "position" : "id as position",
+      existing.has("tags") ? "tags" : "NULL as tags",
+      existing.has("priority") ? "priority" : "NULL as priority",
+      existing.has("assignees") ? "assignees" : "NULL as assignees",
+      existing.has("attachments") ? "attachments" : "NULL as attachments",
+      existing.has("checklist_groups") ? "checklist_groups" : "NULL as checklist_groups",
     ];
 
     await run(
-      `INSERT INTO kanban_cards_new (id, project_id, title, label, status, dueDate, description, amount)
+      `INSERT INTO kanban_cards_new (id, project_id, title, label, status, dueDate, description, amount, position, tags, priority, assignees, attachments, checklist_groups)
        SELECT ${selectExprs.join(", ")} FROM kanban_cards`
     );
 
@@ -305,6 +491,12 @@ async function init() {
     { name: "dueDate", sql: "ALTER TABLE kanban_cards ADD COLUMN dueDate TEXT" },
     { name: "description", sql: "ALTER TABLE kanban_cards ADD COLUMN description TEXT" },
     { name: "amount", sql: "ALTER TABLE kanban_cards ADD COLUMN amount REAL DEFAULT 0" },
+    { name: "position", sql: "ALTER TABLE kanban_cards ADD COLUMN position INTEGER DEFAULT 0" },
+    { name: "tags", sql: "ALTER TABLE kanban_cards ADD COLUMN tags TEXT" },
+    { name: "priority", sql: "ALTER TABLE kanban_cards ADD COLUMN priority TEXT" },
+    { name: "assignees", sql: "ALTER TABLE kanban_cards ADD COLUMN assignees TEXT" },
+    { name: "attachments", sql: "ALTER TABLE kanban_cards ADD COLUMN attachments TEXT" },
+    { name: "checklist_groups", sql: "ALTER TABLE kanban_cards ADD COLUMN checklist_groups TEXT" },
   ];
 
   for (const migration of migrations) {
@@ -323,13 +515,17 @@ async function init() {
     await run("UPDATE notes SET updated_at = created_at WHERE updated_at IS NULL");
   }
 
-  // Migrate projects table to add tags column and copy from tag if needed
+  // Migrate projects table to add tags/members columns and copy from tag if needed
   try {
     const projectColumns = await all("PRAGMA table_info(projects)");
     const projectExisting = new Set(projectColumns.map((col) => col.name));
 
     if (!projectExisting.has("tags")) {
       await run("ALTER TABLE projects ADD COLUMN tags TEXT");
+    }
+
+    if (!projectExisting.has("members")) {
+      await run("ALTER TABLE projects ADD COLUMN members TEXT");
     }
 
     if (projectExisting.has("tag")) {
@@ -353,6 +549,32 @@ async function init() {
   } catch (err) {
     console.error("⚠️  Failed to add checklist column:", err.message);
     // Continue anyway
+  }
+
+  try {
+    await run("UPDATE kanban_cards SET position = id WHERE position IS NULL OR position = 0");
+  } catch (err) {
+    console.error("⚠️  Failed to backfill kanban positions:", err.message);
+  }
+
+  try {
+    const columns = await all("SELECT * FROM kanban_columns WHERE user_id IS NULL");
+    if (!columns.length) {
+      await run(
+        "INSERT INTO kanban_columns (key, name, position, user_id) VALUES (?, ?, ?, ?)",
+        ["todo", "To Do", 1, null]
+      );
+      await run(
+        "INSERT INTO kanban_columns (key, name, position, user_id) VALUES (?, ?, ?, ?)",
+        ["inprogress", "In Progress", 2, null]
+      );
+      await run(
+        "INSERT INTO kanban_columns (key, name, position, user_id) VALUES (?, ?, ?, ?)",
+        ["done", "Done", 3, null]
+      );
+    }
+  } catch (err) {
+    console.error("⚠️  Failed to seed kanban columns:", err.message);
   }
 
   // Migrate wishlist_items table to ensure all columns exist
@@ -392,6 +614,32 @@ async function init() {
     }
   }
   console.log("✅ User ID migration completed");
+
+  // Migrate vision_goals to add achieved flag if missing
+  try {
+    const visionColumns = await all("PRAGMA table_info(vision_goals)");
+    const visionExisting = new Set(visionColumns.map((col) => col.name));
+    if (!visionExisting.has("achieved")) {
+      await run("ALTER TABLE vision_goals ADD COLUMN achieved INTEGER DEFAULT 0");
+      await run("UPDATE vision_goals SET achieved = 0 WHERE achieved IS NULL");
+    }
+    if (!visionExisting.has("category")) {
+      await run("ALTER TABLE vision_goals ADD COLUMN category TEXT DEFAULT 'personal'");
+      await run("UPDATE vision_goals SET category = 'personal' WHERE category IS NULL OR TRIM(category) = ''");
+    }
+    if (!visionExisting.has("archived")) {
+      await run("ALTER TABLE vision_goals ADD COLUMN archived INTEGER DEFAULT 0");
+      await run("UPDATE vision_goals SET archived = COALESCE(achieved, 0)");
+    }
+    if (!visionExisting.has("achieved_at")) {
+      await run("ALTER TABLE vision_goals ADD COLUMN achieved_at TEXT");
+      await run("UPDATE vision_goals SET achieved_at = CURRENT_TIMESTAMP WHERE achieved = 1 AND achieved_at IS NULL");
+    }
+    await run("UPDATE vision_goals SET category = 'personal' WHERE category IS NULL OR TRIM(category) = ''");
+    await run("UPDATE vision_goals SET archived = COALESCE(achieved, 0) WHERE archived IS NULL");
+  } catch (err) {
+    console.error("⚠️  Failed to add achieved column to vision_goals:", err.message);
+  }
 
   // Fix monthly_budgets UNIQUE constraint to include user_id
   console.log("🔄 Fixing monthly_budgets UNIQUE constraint...");
@@ -557,6 +805,117 @@ async function init() {
     }
   }
   
+  // Seed minimal collaboration demo data once (safe and non-destructive).
+  const [existingDemoProject] = await all(
+    "SELECT id FROM projects WHERE name = ? LIMIT 1",
+    ["Collab Launch Demo"]
+  );
+  if (!existingDemoProject) {
+    const [existingAlice] = await all("SELECT id, username FROM users WHERE username = ?", ["alice"]);
+    const [existingLina] = await all("SELECT id, username FROM users WHERE username = ?", ["lina"]);
+
+    if (!existingAlice) {
+      const hashed = await hashPassword("alice123");
+      await run(
+        "INSERT INTO users (username, password, email) VALUES (?, ?, ?)",
+        ["alice", hashed, "alice@example.com"]
+      );
+    }
+    if (!existingLina) {
+      const hashed = await hashPassword("lina123");
+      await run(
+        "INSERT INTO users (username, password, email) VALUES (?, ?, ?)",
+        ["lina", hashed, "lina@example.com"]
+      );
+    }
+
+    const [alice] = await all("SELECT id, username FROM users WHERE username = ?", ["alice"]);
+    const [lina] = await all("SELECT id, username FROM users WHERE username = ?", ["lina"]);
+    if (alice && lina) {
+      const projectInsert = await run(
+        "INSERT INTO projects (name, tags, members, dueDate, description, taskCount, user_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        [
+          "Collab Launch Demo",
+          JSON.stringify(["Work", "Collab"]),
+          JSON.stringify([lina.username]),
+          "2026-03-10",
+          "Demo collaborative project seeded for testing assignments.",
+          2,
+          alice.id
+        ]
+      );
+
+      const seededCards = [
+        {
+          title: "Prepare launch brief",
+          status: "todo",
+          dueDate: "2026-02-20",
+          description: "Draft kickoff notes and assign responsibilities.",
+          priority: "high",
+          assignees: [alice.username, lina.username],
+          position: 1
+        },
+        {
+          title: "Collect reference assets",
+          status: "inprogress",
+          dueDate: "2026-02-22",
+          description: "Gather brand visuals and moodboard files.",
+          priority: "medium",
+          assignees: [lina.username],
+          position: 1
+        }
+      ];
+
+      for (const card of seededCards) {
+        await run(
+          "INSERT INTO kanban_cards (project_id, title, label, status, dueDate, description, amount, checklist, checklist_groups, tags, priority, assignees, attachments, position, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+          [
+            projectInsert.lastID,
+            card.title,
+            "Collab",
+            card.status,
+            card.dueDate,
+            card.description,
+            0,
+            JSON.stringify([]),
+            JSON.stringify([]),
+            JSON.stringify(["Collab"]),
+            card.priority,
+            JSON.stringify(card.assignees),
+            JSON.stringify([]),
+            card.position,
+            alice.id
+          ]
+        );
+      }
+    }
+  }
+
+  // Seed profile details for user 'bakkali douae' if available
+  try {
+    const [bakkali] = await all(
+      "SELECT id, username FROM users WHERE lower(username) = ?",
+      ["bakkali douae"]
+    );
+    if (bakkali) {
+      await run(
+        "UPDATE users SET display_name = ?, focus = ?, bio = ?, mantra = ?, birthday = ?, theme_mood = ?, language = ?, joined_date = COALESCE(joined_date, created_at) WHERE id = ?",
+        [
+          "Bakkali Douae",
+          "Ship sweet features with calm focus",
+          "Dreamy planner + soft builder of cozy workrooms.",
+          "Small steps, soft wins",
+          "1999-06-12",
+          "Strawberry",
+          "French",
+          bakkali.id
+        ]
+      );
+    }
+  } catch (err) {
+    console.error("⚠️  Failed to seed profile details:", err.message);
+  }
+
   console.log("✅ Database initialization completed successfully");
   
   } catch (error) {
@@ -603,71 +962,129 @@ app.delete("/api/tasks/:id", async (req, res) => {
 
 app.get("/api/projects", async (req, res) => {
   if (!req.userId) return res.status(401).send("Unauthorized");
+  const user = await getCurrentUser(req);
+  if (!user) return res.status(401).send("Unauthorized");
   const rows = await all(
-    `SELECT p.*, COUNT(k.id) as taskCount
+    `SELECT p.*,
+            COUNT(k.id) as taskCount,
+            CASE WHEN p.user_id = ? THEN 1 ELSE 0 END as isOwner
      FROM projects p
      LEFT JOIN kanban_cards k ON k.project_id = p.id
      WHERE p.user_id = ?
+        OR EXISTS (
+          SELECT 1 FROM json_each(COALESCE(p.members, '[]')) m
+          WHERE lower(m.value) = lower(?)
+        )
      GROUP BY p.id
      ORDER BY p.id DESC`,
-    [req.userId]
+    [req.userId, req.userId, user.username]
   );
   const parsed = rows.map((p) => ({
     ...p,
-    tags: p.tags ? JSON.parse(p.tags) : []
+    tags: p.tags ? JSON.parse(p.tags) : [],
+    members: p.members ? JSON.parse(p.members) : [],
+    isOwner: Boolean(p.isOwner)
   }));
   res.json(parsed);
 });
 
 app.post("/api/projects", async (req, res) => {
   if (!req.userId) return res.status(401).send("Unauthorized");
-  const { name, tags, dueDate, description } = req.body;
+  const { name, tags, members, dueDate, description } = req.body;
   if (!name) return res.status(400).send("Name required");
+  const { resolved: validMembers, missing: missingMembers } = await resolveExistingUsernames(members || []);
+  if (missingMembers.length) {
+    return res.status(400).json({
+      error: "Some project members do not exist",
+      missingUsers: missingMembers
+    });
+  }
   const tagsJson = Array.isArray(tags)
     ? JSON.stringify(tags)
     : (tags ? JSON.stringify([tags]) : JSON.stringify([]));
+  const membersJson = JSON.stringify(validMembers);
   const result = await run(
-    "INSERT INTO projects (name, tags, dueDate, description, user_id) VALUES (?, ?, ?, ?, ?)",
-    [name, tagsJson, dueDate || null, description || null, req.userId]
+    "INSERT INTO projects (name, tags, members, dueDate, description, user_id) VALUES (?, ?, ?, ?, ?, ?)",
+    [name, tagsJson, membersJson, dueDate || null, description || null, req.userId]
   );
   const [project] = await all("SELECT * FROM projects WHERE id = ?", [result.lastID]);
   if (project && project.tags) {
     project.tags = JSON.parse(project.tags);
   }
+  project.members = project?.members ? JSON.parse(project.members) : [];
   res.status(201).json(project);
 });
 
 app.put("/api/projects/:id", async (req, res) => {
   if (!req.userId) return res.status(401).send("Unauthorized");
   const { id } = req.params;
-  const existing = await all("SELECT * FROM projects WHERE id = ? AND user_id = ?", [id, req.userId]);
+  const existing = await all("SELECT * FROM projects WHERE id = ?", [id]);
   if (!existing.length) return res.status(404).send("Not found");
-  const { name, tags, dueDate, description, taskCount } = req.body;
+  if (existing[0].user_id !== req.userId) return res.status(403).send("Only project owner can edit project settings");
+  const { name, tags, members, dueDate, description, taskCount } = req.body;
+  let membersJson = existing[0].members;
+  if (members !== undefined) {
+    const { resolved: validMembers, missing: missingMembers } = await resolveExistingUsernames(members);
+    if (missingMembers.length) {
+      return res.status(400).json({
+        error: "Some project members do not exist",
+        missingUsers: missingMembers
+      });
+    }
+    membersJson = JSON.stringify(validMembers);
+  }
   const tagsJson = Array.isArray(tags)
     ? JSON.stringify(tags)
     : (tags ? JSON.stringify([tags]) : existing[0].tags);
   const next = {
     name: name ?? existing[0].name,
     tags: tagsJson ?? existing[0].tags,
+    members: membersJson ?? existing[0].members,
     dueDate: dueDate ?? existing[0].dueDate,
     description: description ?? existing[0].description,
     taskCount: typeof taskCount === "number" ? taskCount : existing[0].taskCount,
   };
   await run(
-    "UPDATE projects SET name = ?, tags = ?, dueDate = ?, description = ?, taskCount = ? WHERE id = ? AND user_id = ?",
-    [next.name, next.tags, next.dueDate, next.description, next.taskCount, id, req.userId]
+    "UPDATE projects SET name = ?, tags = ?, members = ?, dueDate = ?, description = ?, taskCount = ? WHERE id = ? AND user_id = ?",
+    [next.name, next.tags, next.members, next.dueDate, next.description, next.taskCount, id, req.userId]
   );
+
+  // Keep task assignees coherent with current project collaborators.
+  const owner = await getCurrentUser(req);
+  const allowedAssignees = new Set([
+    ...parseJsonArray(next.members).map((name) => String(name).toLowerCase()),
+    String(owner?.username || "").toLowerCase()
+  ]);
+  const projectCards = await all(
+    "SELECT id, assignees FROM kanban_cards WHERE project_id = ?",
+    [id]
+  );
+  for (const projectCard of projectCards) {
+    const currentAssignees = parseJsonArray(projectCard.assignees);
+    const filteredAssignees = currentAssignees.filter((name) => allowedAssignees.has(String(name).toLowerCase()));
+    if (JSON.stringify(filteredAssignees) !== JSON.stringify(currentAssignees)) {
+      await run(
+        "UPDATE kanban_cards SET assignees = ? WHERE id = ?",
+        [JSON.stringify(filteredAssignees), projectCard.id]
+      );
+    }
+  }
+
   const [project] = await all("SELECT * FROM projects WHERE id = ?", [id]);
   if (project && project.tags) {
     project.tags = JSON.parse(project.tags);
   }
+  project.members = project?.members ? JSON.parse(project.members) : [];
   res.json(project);
 });
 
 app.delete("/api/projects/:id", async (req, res) => {
   if (!req.userId) return res.status(401).send("Unauthorized");
   const { id } = req.params;
-  await run("DELETE FROM projects WHERE id = ? AND user_id = ?", [id, req.userId]);
+  const existing = await all("SELECT id, user_id FROM projects WHERE id = ?", [id]);
+  if (!existing.length) return res.status(404).send("Not found");
+  if (existing[0].user_id !== req.userId) return res.status(403).send("Only project owner can delete project");
+  await run("DELETE FROM projects WHERE id = ?", [id]);
   res.status(204).send();
 });
 
@@ -699,43 +1116,247 @@ app.delete("/api/transactions/:id", async (req, res) => {
 });
 
 // Kanban Cards
+app.get("/api/kanban/columns", async (req, res) => {
+  if (!req.userId) return res.status(401).send("Unauthorized");
+  const rows = await all(
+    "SELECT key, name, position FROM kanban_columns WHERE user_id IS NULL OR user_id = ? ORDER BY position ASC, id ASC",
+    [req.userId]
+  );
+  if (!rows.length) {
+    return res.json([
+      { key: "todo", name: "To Do", position: 1 },
+      { key: "inprogress", name: "In Progress", position: 2 },
+      { key: "done", name: "Done", position: 3 }
+    ]);
+  }
+  res.json(rows);
+});
+
+app.post("/api/kanban/columns", async (req, res) => {
+  if (!req.userId) return res.status(401).send("Unauthorized");
+  const { name } = req.body;
+  if (!name || typeof name !== "string") return res.status(400).send("Name required");
+  const slug = name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "") || "column";
+  const [row] = await all(
+    "SELECT COUNT(*) as count FROM kanban_columns WHERE key LIKE ? AND (user_id IS NULL OR user_id = ?)",
+    [`${slug}%`, req.userId]
+  );
+  const suffix = row?.count ? `-${row.count + 1}` : "";
+  const key = `${slug}${suffix}`;
+  const [positionRow] = await all(
+    "SELECT COALESCE(MAX(position), 0) as maxPos FROM kanban_columns WHERE user_id IS NULL OR user_id = ?",
+    [req.userId]
+  );
+  const position = (positionRow?.maxPos || 0) + 1;
+  await run(
+    "INSERT INTO kanban_columns (key, name, position, user_id) VALUES (?, ?, ?, ?)",
+    [key, name.trim(), position, req.userId]
+  );
+  res.status(201).json({ key, name: name.trim(), position });
+});
+
+app.put("/api/kanban/columns/:key", async (req, res) => {
+  if (!req.userId) return res.status(401).send("Unauthorized");
+  const { key } = req.params;
+  const { name, position } = req.body;
+  const existing = await all(
+    "SELECT * FROM kanban_columns WHERE key = ? AND (user_id IS NULL OR user_id = ?)",
+    [key, req.userId]
+  );
+  if (!existing.length) return res.status(404).send("Not found");
+  const nextName = typeof name === "string" && name.trim() ? name.trim() : existing[0].name;
+  const nextPosition = typeof position === "number" ? position : existing[0].position;
+  await run(
+    "UPDATE kanban_columns SET name = ?, position = ?, user_id = ? WHERE key = ? AND (user_id IS NULL OR user_id = ?)",
+    [nextName, nextPosition, req.userId, key, req.userId]
+  );
+  res.json({ key, name: nextName, position: nextPosition });
+});
+
+app.delete("/api/kanban/columns/:key", async (req, res) => {
+  if (!req.userId) return res.status(401).send("Unauthorized");
+  const { key } = req.params;
+  const existing = await all(
+    "SELECT * FROM kanban_columns WHERE key = ? AND (user_id IS NULL OR user_id = ?)",
+    [key, req.userId]
+  );
+  if (!existing.length) return res.status(404).send("Not found");
+
+  await run(
+    "UPDATE kanban_cards SET status = 'todo' WHERE user_id = ? AND status = ?",
+    [req.userId, key]
+  );
+  await run(
+    "DELETE FROM kanban_columns WHERE key = ? AND (user_id IS NULL OR user_id = ?)",
+    [key, req.userId]
+  );
+  res.status(204).send();
+});
+
 app.get("/api/kanban/:projectId", async (req, res) => {
   if (!req.userId) return res.status(401).send("Unauthorized");
   const { projectId } = req.params;
-  const rows = await all(
-    "SELECT * FROM kanban_cards WHERE user_id = ? AND (project_id = ? OR (project_id IS NULL AND ? = '0')) ORDER BY id DESC",
-    [req.userId, projectId === '0' ? null : projectId, projectId]
-  );
+  let rows = [];
+  if (projectId === '0') {
+    rows = await all(
+      "SELECT * FROM kanban_cards WHERE user_id = ? AND project_id IS NULL ORDER BY status ASC, position ASC, id ASC",
+      [req.userId]
+    );
+  } else {
+    const hasAccess = await canAccessProject(Number(projectId), req);
+    if (!hasAccess) return res.status(403).send("Forbidden");
+    rows = await all(
+      "SELECT * FROM kanban_cards WHERE project_id = ? ORDER BY status ASC, position ASC, id ASC",
+      [projectId]
+    );
+  }
   // Parse checklist JSON
   const cardsWithChecklist = rows.map(card => ({
     ...card,
-    checklist: card.checklist ? JSON.parse(card.checklist) : []
+    checklist: card.checklist ? JSON.parse(card.checklist) : [],
+    checklistGroups: card.checklist_groups
+      ? JSON.parse(card.checklist_groups)
+      : (card.checklist ? [{ id: "default", name: "Checklist", items: JSON.parse(card.checklist) }] : []),
+    tags: card.tags ? JSON.parse(card.tags) : [],
+    assignees: card.assignees ? JSON.parse(card.assignees) : [],
+    attachments: card.attachments ? JSON.parse(card.attachments) : [],
   }));
   res.json(cardsWithChecklist);
 });
 
 app.post("/api/kanban", async (req, res) => {
   if (!req.userId) return res.status(401).send("Unauthorized");
-  const { project_id, title, label, status, dueDate, description, amount, checklist } = req.body;
+  const { project_id, title, label, status, dueDate, description, amount, checklist, checklistGroups, position, tags, priority, assignees, attachments } = req.body;
   if (!title) return res.status(400).send("Title required");
   const checklistJson = JSON.stringify(checklist || []);
+  const checklistGroupsJson = JSON.stringify(checklistGroups || []);
+  const tagsJson = JSON.stringify(Array.isArray(tags) ? tags : []);
+  const normalizedAssignees = normalizeUsernameArray(assignees || []);
+  let validAssignees = normalizedAssignees;
+  const attachmentsJson = JSON.stringify(Array.isArray(attachments) ? attachments : []);
+  const projectParam = project_id || null;
+
+  if (projectParam) {
+    const hasAccess = await canAccessProject(Number(projectParam), req);
+    if (!hasAccess) return res.status(403).send("Forbidden");
+    const [project] = await all(
+      `SELECT p.members, owner.username as owner_username
+       FROM projects p
+       LEFT JOIN users owner ON owner.id = p.user_id
+       WHERE p.id = ?`,
+      [projectParam]
+    );
+    if (!project) return res.status(404).send("Project not found");
+    const allowedAssignees = new Set([
+      ...parseJsonArray(project.members).map((name) => String(name).toLowerCase()),
+      String(project.owner_username || "").toLowerCase()
+    ]);
+    const outsideProject = normalizedAssignees.filter((name) => !allowedAssignees.has(name.toLowerCase()));
+    if (outsideProject.length) {
+      return res.status(400).json({
+        error: "Assignees must be collaborators in this project",
+        invalidAssignees: outsideProject
+      });
+    }
+    const { resolved, missing } = await resolveExistingUsernames(normalizedAssignees);
+    if (missing.length) {
+      return res.status(400).json({
+        error: "Some assignees do not exist",
+        missingUsers: missing
+      });
+    }
+    validAssignees = resolved;
+  } else if (normalizedAssignees.length) {
+    return res.status(400).send("Assignees are only allowed for project tasks");
+  }
+
+  let nextPosition = typeof position === "number" ? position : null;
+  if (nextPosition === null) {
+    let row;
+    if (projectParam) {
+      [row] = await all(
+        "SELECT COALESCE(MAX(position), 0) as maxPos FROM kanban_cards WHERE status = ? AND project_id = ?",
+        [status || 'todo', projectParam]
+      );
+    } else {
+      [row] = await all(
+        "SELECT COALESCE(MAX(position), 0) as maxPos FROM kanban_cards WHERE user_id = ? AND status = ? AND project_id IS NULL",
+        [req.userId, status || 'todo']
+      );
+    }
+    nextPosition = (row?.maxPos || 0) + 1;
+  }
+  const assigneesJson = JSON.stringify(validAssignees);
   const result = await run(
-    "INSERT INTO kanban_cards (project_id, title, label, status, dueDate, description, amount, checklist, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-    [project_id || null, title, label || null, status || 'todo', dueDate || null, description || null, amount || 0, checklistJson, req.userId]
+    "INSERT INTO kanban_cards (project_id, title, label, status, dueDate, description, amount, checklist, checklist_groups, tags, priority, assignees, attachments, position, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    [project_id || null, title, label || null, status || 'todo', dueDate || null, description || null, amount || 0, checklistJson, checklistGroupsJson, tagsJson, priority || null, assigneesJson, attachmentsJson, nextPosition, req.userId]
   );
   const [card] = await all("SELECT * FROM kanban_cards WHERE id = ?", [result.lastID]);
   res.status(201).json({
     ...card,
-    checklist: card.checklist ? JSON.parse(card.checklist) : []
+    checklist: card.checklist ? JSON.parse(card.checklist) : [],
+    checklistGroups: card.checklist_groups
+      ? JSON.parse(card.checklist_groups)
+      : (card.checklist ? [{ id: "default", name: "Checklist", items: JSON.parse(card.checklist) }] : []),
+    tags: card.tags ? JSON.parse(card.tags) : [],
+    assignees: card.assignees ? JSON.parse(card.assignees) : [],
+    attachments: card.attachments ? JSON.parse(card.attachments) : [],
   });
 });
 
 app.put("/api/kanban/:id", async (req, res) => {
   if (!req.userId) return res.status(401).send("Unauthorized");
   const { id } = req.params;
-  const existing = await all("SELECT * FROM kanban_cards WHERE id = ? AND user_id = ?", [id, req.userId]);
+  const existing = await all("SELECT * FROM kanban_cards WHERE id = ?", [id]);
   if (!existing.length) return res.status(404).send("Not found");
-  const { title, label, status, dueDate, description, amount, checklist } = req.body;
+  const card = existing[0];
+  if (card.project_id) {
+    const hasAccess = await canAccessProject(card.project_id, req);
+    if (!hasAccess) return res.status(403).send("Forbidden");
+  } else if (card.user_id !== req.userId) {
+    return res.status(403).send("Forbidden");
+  }
+  const { title, label, status, dueDate, description, amount, checklist, checklistGroups, position, tags, priority, assignees, attachments } = req.body;
+  let nextAssignees = existing[0].assignees;
+  if (assignees !== undefined) {
+    const normalizedAssignees = normalizeUsernameArray(assignees);
+    if (!card.project_id && normalizedAssignees.length) {
+      return res.status(400).send("Assignees are only allowed for project tasks");
+    }
+    if (card.project_id) {
+      const [project] = await all(
+        `SELECT p.members, owner.username as owner_username
+         FROM projects p
+         LEFT JOIN users owner ON owner.id = p.user_id
+         WHERE p.id = ?`,
+        [card.project_id]
+      );
+      if (!project) return res.status(404).send("Project not found");
+      const allowedAssignees = new Set([
+        ...parseJsonArray(project.members).map((name) => String(name).toLowerCase()),
+        String(project.owner_username || "").toLowerCase()
+      ]);
+      const outsideProject = normalizedAssignees.filter((name) => !allowedAssignees.has(name.toLowerCase()));
+      if (outsideProject.length) {
+        return res.status(400).json({
+          error: "Assignees must be collaborators in this project",
+          invalidAssignees: outsideProject
+        });
+      }
+    }
+    const { resolved, missing } = await resolveExistingUsernames(normalizedAssignees);
+    if (missing.length) {
+      return res.status(400).json({
+        error: "Some assignees do not exist",
+        missingUsers: missing
+      });
+    }
+    nextAssignees = JSON.stringify(resolved);
+  }
   const next = {
     title: title ?? existing[0].title,
     label: label ?? existing[0].label,
@@ -744,22 +1365,43 @@ app.put("/api/kanban/:id", async (req, res) => {
     description: description ?? existing[0].description,
     amount: typeof amount === "number" ? amount : existing[0].amount,
     checklist: checklist !== undefined ? JSON.stringify(checklist) : existing[0].checklist,
+    checklistGroups: checklistGroups !== undefined ? JSON.stringify(checklistGroups) : existing[0].checklist_groups,
+    tags: tags !== undefined ? JSON.stringify(Array.isArray(tags) ? tags : []) : existing[0].tags,
+    priority: priority ?? existing[0].priority,
+    assignees: nextAssignees,
+    attachments: attachments !== undefined ? JSON.stringify(Array.isArray(attachments) ? attachments : []) : existing[0].attachments,
+    position: typeof position === "number" ? position : existing[0].position,
   };
   await run(
-    "UPDATE kanban_cards SET title = ?, label = ?, status = ?, dueDate = ?, description = ?, amount = ?, checklist = ? WHERE id = ? AND user_id = ?",
-    [next.title, next.label, next.status, next.dueDate, next.description, next.amount, next.checklist, id, req.userId]
+    "UPDATE kanban_cards SET title = ?, label = ?, status = ?, dueDate = ?, description = ?, amount = ?, checklist = ?, checklist_groups = ?, tags = ?, priority = ?, assignees = ?, attachments = ?, position = ? WHERE id = ?",
+    [next.title, next.label, next.status, next.dueDate, next.description, next.amount, next.checklist, next.checklistGroups, next.tags, next.priority, next.assignees, next.attachments, next.position, id]
   );
-  const [card] = await all("SELECT * FROM kanban_cards WHERE id = ?", [id]);
+  const [updatedCard] = await all("SELECT * FROM kanban_cards WHERE id = ?", [id]);
   res.json({
-    ...card,
-    checklist: card.checklist ? JSON.parse(card.checklist) : []
+    ...updatedCard,
+    checklist: updatedCard.checklist ? JSON.parse(updatedCard.checklist) : [],
+    checklistGroups: updatedCard.checklist_groups
+      ? JSON.parse(updatedCard.checklist_groups)
+      : (updatedCard.checklist ? [{ id: "default", name: "Checklist", items: JSON.parse(updatedCard.checklist) }] : []),
+    tags: updatedCard.tags ? JSON.parse(updatedCard.tags) : [],
+    assignees: updatedCard.assignees ? JSON.parse(updatedCard.assignees) : [],
+    attachments: updatedCard.attachments ? JSON.parse(updatedCard.attachments) : [],
   });
 });
 
 app.delete("/api/kanban/:id", async (req, res) => {
   if (!req.userId) return res.status(401).send("Unauthorized");
   const { id } = req.params;
-  await run("DELETE FROM kanban_cards WHERE id = ? AND user_id = ?", [id, req.userId]);
+  const existing = await all("SELECT * FROM kanban_cards WHERE id = ?", [id]);
+  if (!existing.length) return res.status(404).send("Not found");
+  const card = existing[0];
+  if (card.project_id) {
+    const hasAccess = await canAccessProject(card.project_id, req);
+    if (!hasAccess) return res.status(403).send("Forbidden");
+  } else if (card.user_id !== req.userId) {
+    return res.status(403).send("Forbidden");
+  }
+  await run("DELETE FROM kanban_cards WHERE id = ?", [id]);
   res.status(204).send();
 });
 
@@ -834,17 +1476,49 @@ app.get("/api/vision-goals", async (req, res) => {
 
 app.post("/api/vision-goals", async (req, res) => {
   if (!req.userId) return res.status(401).send("Unauthorized");
-  const { title, description, icon } = req.body;
+  const { title, description, icon, category } = req.body;
   if (!title || !description) {
     return res.status(400).send("Title and description required");
   }
+  const normalizedCategory = String(category || "personal").trim().toLowerCase() || "personal";
   const result = await run(
-    "INSERT INTO vision_goals (title, description, icon, user_id) VALUES (?, ?, ?, ?)",
-    [title, description, icon || '✨', req.userId]
+    "INSERT INTO vision_goals (title, description, icon, category, achieved, archived, achieved_at, user_id) VALUES (?, ?, ?, ?, 0, 0, NULL, ?)",
+    [title, description, icon || '✨', normalizedCategory, req.userId]
   );
   const [goal] = await all("SELECT * FROM vision_goals WHERE id = ?", [result.lastID]);
   res.status(201).json(goal);
 });
+
+async function updateVisionGoalAchieved(req, res) {
+  if (!req.userId) return res.status(401).send("Unauthorized");
+  const { id } = req.params;
+  const { achieved } = req.body;
+
+  if (typeof achieved !== "boolean" && achieved !== 0 && achieved !== 1) {
+    return res.status(400).json({ message: "Invalid achieved value" });
+  }
+
+  const achievedValue = achieved ? 1 : 0;
+  await run(
+    "UPDATE vision_goals SET achieved = ?, archived = ?, achieved_at = CASE WHEN ? = 1 THEN COALESCE(achieved_at, CURRENT_TIMESTAMP) ELSE NULL END WHERE id = ? AND user_id = ?",
+    [achievedValue, achievedValue, achievedValue, id, req.userId]
+  );
+
+  const rows = await all(
+    "SELECT * FROM vision_goals WHERE id = ? AND user_id = ?",
+    [id, req.userId]
+  );
+
+  if (!rows.length) {
+    return res.status(404).json({ message: "Goal not found" });
+  }
+
+  return res.json(rows[0]);
+}
+
+app.put("/api/vision-goals/:id", updateVisionGoalAchieved);
+app.patch("/api/vision-goals/:id", updateVisionGoalAchieved);
+app.post("/api/vision-goals/:id/toggle", updateVisionGoalAchieved);
 
 app.delete("/api/vision-goals/:id", async (req, res) => {
   if (!req.userId) return res.status(401).send("Unauthorized");
@@ -1132,11 +1806,10 @@ app.post("/api/auth/signup", async (req, res) => {
       return res.status(400).json({ error: "Username already exists" });
     }
     
-    // In production, hash the password with bcrypt!
-    // For now, simple storage (NOT SECURE - use bcrypt in production)
+    const hashedPassword = await hashPassword(password);
     const result = await run(
       "INSERT INTO users (username, password, email) VALUES (?, ?, ?)",
-      [username, password, email || null]
+      [username, hashedPassword, email || null]
     );
     
     const [user] = await all("SELECT id, username, email FROM users WHERE id = ?", [result.lastID]);
@@ -1156,19 +1829,222 @@ app.post("/api/auth/login", async (req, res) => {
   try {
     const [user] = await all("SELECT * FROM users WHERE username = ?", [username]);
     
-    if (!user || user.password !== password) {
+    if (!user) {
       return res.status(401).json({ error: "Invalid username or password" });
+    }
+
+    const isValid = await verifyPassword(password, user.password);
+    if (!isValid) {
+      return res.status(401).json({ error: "Invalid username or password" });
+    }
+
+    if (user.password && !isBcryptHash(user.password)) {
+      const nextHash = await hashPassword(password);
+      await run("UPDATE users SET password = ? WHERE id = ?", [nextHash, user.id]);
     }
     
     // Return user without password
     res.json({ 
-      user: { id: user.id, username: user.username, email: user.email },
+      user: {
+        id: user.id,
+        username: user.username,
+        email: user.email,
+        displayName: user.display_name,
+        themeMood: user.theme_mood,
+        language: user.language,
+        avatarUrl: user.avatar_url,
+        created_at: user.created_at,
+        joinedDate: user.joined_date || user.created_at
+      },
       message: "Login successful"
     });
   } catch (err) {
     console.error("Login error:", err);
     res.status(500).json({ error: "Failed to login" });
   }
+});
+
+// Profile endpoints
+app.get("/api/profile", async (req, res) => {
+  if (!req.userId) return res.status(401).json({ error: "Unauthorized" });
+  try {
+    const [user] = await all(
+      "SELECT id, username, email, created_at, display_name, focus, bio, mantra, birthday, theme_mood, language, avatar_url, joined_date FROM users WHERE id = ?",
+      [req.userId]
+    );
+    if (!user) return res.status(404).json({ error: "User not found" });
+    res.json({
+      id: user.id,
+      username: user.username,
+      email: user.email,
+      displayName: user.display_name,
+      focus: user.focus,
+      bio: user.bio,
+      mantra: user.mantra,
+      birthday: user.birthday,
+      themeMood: user.theme_mood,
+      language: user.language,
+      avatarUrl: user.avatar_url,
+      joinedDate: user.joined_date || user.created_at
+    });
+  } catch (err) {
+    console.error("Profile fetch error:", err);
+    res.status(500).json({ error: "Failed to load profile" });
+  }
+});
+
+app.put("/api/profile", async (req, res) => {
+  if (!req.userId) return res.status(401).json({ error: "Unauthorized" });
+  const {
+    displayName,
+    focus,
+    bio,
+    mantra,
+    birthday,
+    themeMood,
+    language
+  } = req.body;
+
+  try {
+    await run(
+      "UPDATE users SET display_name = ?, focus = ?, bio = ?, mantra = ?, birthday = ?, theme_mood = ?, language = ? WHERE id = ?",
+      [
+        displayName || null,
+        focus || null,
+        bio || null,
+        mantra || null,
+        birthday || null,
+        themeMood || null,
+        language || null,
+        req.userId
+      ]
+    );
+    const [user] = await all(
+      "SELECT id, username, email, created_at, display_name, focus, bio, mantra, birthday, theme_mood, language, avatar_url, joined_date FROM users WHERE id = ?",
+      [req.userId]
+    );
+    res.json({
+      id: user.id,
+      username: user.username,
+      email: user.email,
+      displayName: user.display_name,
+      focus: user.focus,
+      bio: user.bio,
+      mantra: user.mantra,
+      birthday: user.birthday,
+      themeMood: user.theme_mood,
+      language: user.language,
+      avatarUrl: user.avatar_url,
+      joinedDate: user.joined_date || user.created_at
+    });
+  } catch (err) {
+    console.error("Profile update error:", err);
+    res.status(500).json({ error: "Failed to update profile" });
+  }
+});
+
+app.post("/api/profile/avatar", profileUpload.single("avatar"), async (req, res) => {
+  if (!req.userId) return res.status(401).json({ error: "Unauthorized" });
+  if (!req.file) return res.status(400).json({ error: "No file uploaded" });
+  try {
+    const [existing] = await all("SELECT avatar_url FROM users WHERE id = ?", [req.userId]);
+    const avatarUrl = `/uploads/${req.file.filename}`;
+    await run("UPDATE users SET avatar_url = ? WHERE id = ?", [avatarUrl, req.userId]);
+    if (existing?.avatar_url) {
+      await removeUploadFile(existing.avatar_url);
+    }
+    const [user] = await all(
+      "SELECT id, username, email, created_at, display_name, focus, bio, mantra, birthday, theme_mood, language, avatar_url, joined_date FROM users WHERE id = ?",
+      [req.userId]
+    );
+    res.json({
+      id: user.id,
+      username: user.username,
+      email: user.email,
+      displayName: user.display_name,
+      focus: user.focus,
+      bio: user.bio,
+      mantra: user.mantra,
+      birthday: user.birthday,
+      themeMood: user.theme_mood,
+      language: user.language,
+      avatarUrl: user.avatar_url,
+      joinedDate: user.joined_date || user.created_at
+    });
+  } catch (err) {
+    console.error("Avatar upload error:", err);
+    res.status(500).json({ error: "Failed to upload avatar" });
+  }
+});
+
+app.delete("/api/profile/avatar", async (req, res) => {
+  if (!req.userId) return res.status(401).json({ error: "Unauthorized" });
+  try {
+    const [existing] = await all("SELECT avatar_url FROM users WHERE id = ?", [req.userId]);
+    await run("UPDATE users SET avatar_url = NULL WHERE id = ?", [req.userId]);
+    if (existing?.avatar_url) {
+      await removeUploadFile(existing.avatar_url);
+    }
+    const [user] = await all(
+      "SELECT id, username, email, created_at, display_name, focus, bio, mantra, birthday, theme_mood, language, avatar_url, joined_date FROM users WHERE id = ?",
+      [req.userId]
+    );
+    res.json({
+      id: user.id,
+      username: user.username,
+      email: user.email,
+      displayName: user.display_name,
+      focus: user.focus,
+      bio: user.bio,
+      mantra: user.mantra,
+      birthday: user.birthday,
+      themeMood: user.theme_mood,
+      language: user.language,
+      avatarUrl: user.avatar_url,
+      joinedDate: user.joined_date || user.created_at
+    });
+  } catch (err) {
+    console.error("Avatar delete error:", err);
+    res.status(500).json({ error: "Failed to remove avatar" });
+  }
+});
+
+app.post("/api/profile/password", async (req, res) => {
+  if (!req.userId) return res.status(401).json({ error: "Unauthorized" });
+  const { currentPassword, newPassword } = req.body;
+  if (!currentPassword || !newPassword) {
+    return res.status(400).json({ error: "Current and new password required" });
+  }
+  if (String(newPassword).length < 8) {
+    return res.status(400).json({ error: "New password must be at least 8 characters" });
+  }
+
+  try {
+    const [user] = await all("SELECT password FROM users WHERE id = ?", [req.userId]);
+    if (!user) {
+      return res.status(401).json({ error: "Current password is incorrect" });
+    }
+    const isValid = await verifyPassword(currentPassword, user.password);
+    if (!isValid) {
+      return res.status(401).json({ error: "Current password is incorrect" });
+    }
+    const hashed = await hashPassword(newPassword);
+    await run("UPDATE users SET password = ? WHERE id = ?", [hashed, req.userId]);
+    res.json({ message: "Password updated" });
+  } catch (err) {
+    console.error("Password update error:", err);
+    res.status(500).json({ error: "Failed to update password" });
+  }
+});
+
+app.get("/api/users/search", async (req, res) => {
+  const query = String(req.query.q || '').trim();
+  if (!query) return res.json([]);
+  const rows = await all(
+    "SELECT id, username, email FROM users WHERE username LIKE ? OR email LIKE ? ORDER BY username ASC LIMIT 10",
+    [`%${query}%`, `%${query}%`]
+  );
+  res.json(rows);
 });
 
 // Serve React app for all non-API routes
@@ -1207,5 +2083,3 @@ process.on('unhandledRejection', (reason, promise) => {
   console.error('❌ UNHANDLED REJECTION at:', promise);
   console.error('Reason:', reason);
 });
-
-

@@ -1,7 +1,11 @@
 import { useState } from 'react'
+import { useLanguage } from '../context/LanguageContext'
 
 export default function WishlistItem({ item, onEdit, onDelete, onMarkPurchased, onRemoveImage }) {
+  const { t, langKey } = useLanguage()
   const [isHovered, setIsHovered] = useState(false)
+  const localeByLang = { en: 'en-US', fr: 'fr-FR', de: 'de-DE' }
+  const locale = localeByLang[langKey] || 'en-US'
 
   return (
     <div
@@ -18,7 +22,7 @@ export default function WishlistItem({ item, onEdit, onDelete, onMarkPurchased, 
               <button
                 className="btn-remove-wishlist-image"
                 onClick={() => onRemoveImage(item.id)}
-                title="Remove image"
+                title={t('wishlist.removeImage')}
               >
                 ✕
               </button>
@@ -40,7 +44,7 @@ export default function WishlistItem({ item, onEdit, onDelete, onMarkPurchased, 
             <button
               className="icon-btn"
               onClick={() => onEdit(item)}
-              title="Edit item"
+              title={t('wishlist.editItem')}
             >
               ✎
             </button>
@@ -48,7 +52,7 @@ export default function WishlistItem({ item, onEdit, onDelete, onMarkPurchased, 
               <button
                 className="icon-btn check-btn"
                 onClick={() => onMarkPurchased(item.id)}
-                title="Mark as purchased"
+                title={t('wishlist.markPurchased')}
               >
                 ✓
               </button>
@@ -56,7 +60,7 @@ export default function WishlistItem({ item, onEdit, onDelete, onMarkPurchased, 
             <button
               className="icon-btn delete-btn"
               onClick={() => onDelete(item.id)}
-              title="Delete item"
+              title={t('wishlist.deleteItem')}
             >
               ✕
             </button>
@@ -64,7 +68,7 @@ export default function WishlistItem({ item, onEdit, onDelete, onMarkPurchased, 
         </div>
         {item.purchased_date && (
           <p className="wishlist-item-date">
-            Purchased: {new Date(item.purchased_date).toLocaleDateString('en-US', { 
+            {t('wishlist.purchasedOn')}: {new Date(item.purchased_date).toLocaleDateString(locale, { 
               year: 'numeric', 
               month: 'short', 
               day: 'numeric' 

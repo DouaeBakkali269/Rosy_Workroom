@@ -1,12 +1,16 @@
 import { useState, useEffect } from 'react'
 import useLockBodyScroll from '../hooks/useLockBodyScroll'
 import ModalPortal from '../components/ModalPortal'
+import ConfirmModal from '../components/ConfirmModal'
 import { getTransactions, createTransaction, deleteTransaction, getMonthlyBudget, setMonthlyBudget } from '../services/api'
+import { useLanguage } from '../context/LanguageContext'
 
 export default function MoneyPage() {
+  const { t } = useLanguage()
   const [transactions, setTransactions] = useState([])
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [isBudgetModalOpen, setIsBudgetModalOpen] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState({ isOpen: false, txId: null, txLabel: '' })
   const [monthlyBudget, setMonthlyBudgetState] = useState(0)
   const [budgetInput, setBudgetInput] = useState('')
   const [formData, setFormData] = useState({
@@ -16,7 +20,7 @@ export default function MoneyPage() {
     amount: ''
   })
 
-  useLockBodyScroll(isModalOpen || isBudgetModalOpen)
+  useLockBodyScroll(isModalOpen || isBudgetModalOpen || confirmDelete.isOpen)
 
   useEffect(() => {
     loadTransactions()
@@ -71,8 +75,18 @@ export default function MoneyPage() {
     }
   }
 
-  async function handleDelete(id) {
-    await deleteTransaction(id)
+  function handleDelete(id) {
+    const tx = transactions.find(item => item.id === id)
+    setConfirmDelete({
+      isOpen: true,
+      txId: id,
+      txLabel: tx?.item || t('money.thisTransaction')
+    })
+  }
+
+  async function confirmDeleteTransaction() {
+    await deleteTransaction(confirmDelete.txId)
+    setConfirmDelete({ isOpen: false, txId: null, txLabel: '' })
     loadTransactions()
   }
 
@@ -84,14 +98,14 @@ export default function MoneyPage() {
     acc[tx.category] = (acc[tx.category] || 0) + tx.amount
     return acc
   }, {})
-  const topCategory = Object.entries(categoryTotals).sort(([, a], [, b]) => b - a)[0]?.[0] || 'None'
+  const topCategory = Object.entries(categoryTotals).sort(([, a], [, b]) => b - a)[0]?.[0] || t('common.none')
   const budgetPercentage = monthlyBudget > 0 ? Math.round((totalSpent / monthlyBudget) * 100) : 0
 
   return (
     <section className="page-section active">
       <div className="section-header">
-        <h2>Money Tracker</h2>
-        <button className="btn primary" onClick={() => setIsModalOpen(true)}>Add transaction</button>
+        <h2>{t('money.title')}</h2>
+        <button className="btn primary" onClick={() => setIsModalOpen(true)}>{t('money.addTransaction')}</button>
       </div>
 
       {isModalOpen && (
@@ -99,7 +113,7 @@ export default function MoneyPage() {
           <div className="modal-overlay" onClick={() => setIsModalOpen(false)}>
             <div className="modal-content" onClick={(e) => e.stopPropagation()}>
               <div className="modal-header">
-                <h3>Add Transaction</h3>
+                <h3>{t('money.addTransactionTitle')}</h3>
                 <button className="modal-close" onClick={() => setIsModalOpen(false)}>✕</button>
               </div>
               <form className="modal-form" onSubmit={handleSubmit}>
@@ -115,7 +129,7 @@ export default function MoneyPage() {
                   type="text"
                   value={formData.item}
                   onChange={(e) => setFormData({ ...formData, item: e.target.value })}
-                  placeholder="Item"
+                  placeholder={t('money.itemPlaceholder')}
                   required
                 />
                 <input
@@ -123,7 +137,7 @@ export default function MoneyPage() {
                   type="text"
                   value={formData.category}
                   onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-                  placeholder="Category"
+                  placeholder={t('money.categoryPlaceholder')}
                   required
                 />
                 <input
@@ -132,12 +146,12 @@ export default function MoneyPage() {
                   step="0.01"
                   value={formData.amount}
                   onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
-                  placeholder="Amount"
+                  placeholder={t('money.amountPlaceholder')}
                   required
                 />
                 <div className="modal-actions">
-                  <button className="btn ghost" type="button" onClick={() => setIsModalOpen(false)}>Cancel</button>
-                  <button className="btn primary" type="submit">Add Transaction</button>
+                  <button className="btn ghost" type="button" onClick={() => setIsModalOpen(false)}>{t('common.cancel')}</button>
+                  <button className="btn primary" type="submit">{t('money.addTransactionButton')}</button>
                 </div>
               </form>
             </div>
@@ -150,7 +164,7 @@ export default function MoneyPage() {
           <div className="modal-overlay" onClick={() => setIsBudgetModalOpen(false)}>
             <div className="modal-content" onClick={(e) => e.stopPropagation()}>
               <div className="modal-header">
-                <h3>Set Monthly Budget</h3>
+                <h3>{t('money.setBudgetTitle')}</h3>
                 <button className="modal-close" onClick={() => setIsBudgetModalOpen(false)}>✕</button>
               </div>
               <form className="modal-form" onSubmit={handleSaveBudget}>
@@ -160,12 +174,12 @@ export default function MoneyPage() {
                   step="0.01"
                   value={budgetInput}
                   onChange={(e) => setBudgetInput(e.target.value)}
-                  placeholder="Budget amount"
+                  placeholder={t('money.budgetPlaceholder')}
                   required
                 />
                 <div className="modal-actions">
-                  <button className="btn ghost" type="button" onClick={() => setIsBudgetModalOpen(false)}>Cancel</button>
-                  <button className="btn primary" type="submit">Save Budget</button>
+                  <button className="btn ghost" type="button" onClick={() => setIsBudgetModalOpen(false)}>{t('common.cancel')}</button>
+                  <button className="btn primary" type="submit">{t('money.saveBudget')}</button>
                 </div>
               </form>
             </div>
@@ -176,32 +190,32 @@ export default function MoneyPage() {
       <div className="grid-2">
         <div className="card">
           <div className="card-header">
-            <div className="card-title">Monthly overview</div>
-            <button className="btn ghost" onClick={() => setIsBudgetModalOpen(true)}>Edit budget</button>
+            <div className="card-title">{t('money.monthlyOverview')}</div>
+            <button className="btn ghost" onClick={() => setIsBudgetModalOpen(true)}>{t('money.editBudget')}</button>
           </div>
           <div className="money-grid">
             <div>
-              <div className="money-label">Budget</div>
+              <div className="money-label">{t('money.budgetLabel')}</div>
               <div className="money-value">{monthlyBudget.toFixed(2)} MAD</div>
             </div>
             <div>
-              <div className="money-label">Spent</div>
+              <div className="money-label">{t('money.spentLabel')}</div>
               <div className="money-value">{totalSpent.toFixed(2)} MAD</div>
             </div>
             <div>
-              <div className="money-label">Saved</div>
+              <div className="money-label">{t('money.savedLabel')}</div>
               <div className="money-value" style={{ color: saved > 0 ? '#5b8c6a' : '#e74c3c' }}>
                 {saved.toFixed(2)} MAD
               </div>
             </div>
             <div>
-              <div className="money-label">Top Category</div>
+              <div className="money-label">{t('money.topCategory')}</div>
               <div className="money-value">{topCategory}</div>
             </div>
           </div>
         </div>
         <div className="card">
-          <div className="card-title">Categories</div>
+          <div className="card-title">{t('money.categories')}</div>
           <div className="tag-row">
             {Object.keys(categoryTotals).slice(0, 5).map(cat => (
               <span key={cat} className="tag">{cat}</span>
@@ -210,25 +224,25 @@ export default function MoneyPage() {
           <div className="progress">
             <div className="progress-bar" style={{ width: `${Math.min(budgetPercentage, 100)}%` }}></div>
           </div>
-          <div className="progress-label">{budgetPercentage}% of budget used</div>
+          <div className="progress-label">{budgetPercentage}% {t('money.budgetUsed')}</div>
         </div>
       </div>
 
       <div className="card table-card">
-        <div className="card-title">Recent transactions</div>
+        <div className="card-title">{t('money.recentTransactions')}</div>
         <table>
           <thead>
             <tr>
-              <th>Date</th>
-              <th>Item</th>
-              <th>Category</th>
-              <th>Amount</th>
+              <th>{t('money.tableDate')}</th>
+              <th>{t('money.tableItem')}</th>
+              <th>{t('money.tableCategory')}</th>
+              <th>{t('money.tableAmount')}</th>
               <th></th>
             </tr>
           </thead>
           <tbody>
             {transactions.length === 0 ? (
-              <tr><td colSpan="5" className="empty-state">No transactions yet 💸</td></tr>
+              <tr><td colSpan="5" className="empty-state">{t('money.noTransactions')} 💸</td></tr>
             ) : (
               transactions.map(tx => (
                 <tr key={tx.id}>
@@ -245,6 +259,13 @@ export default function MoneyPage() {
           </tbody>
         </table>
       </div>
+      <ConfirmModal
+        isOpen={confirmDelete.isOpen}
+        onConfirm={confirmDeleteTransaction}
+        onCancel={() => setConfirmDelete({ isOpen: false, txId: null, txLabel: '' })}
+        title={t('money.deleteTitle')}
+        message={t('money.deleteMessage').replace('{tx}', confirmDelete.txLabel)}
+      />
     </section>
   )
 }

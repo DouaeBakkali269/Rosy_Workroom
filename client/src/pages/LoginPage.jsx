@@ -1,13 +1,16 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useLanguage } from '../context/LanguageContext'
 
 export default function LoginPage({ onLogin, initialMode = 'login' }) {
   const navigate = useNavigate()
+  const { t } = useLanguage()
   const [isSignup, setIsSignup] = useState(false)
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [email, setEmail] = useState('')
   const [error, setError] = useState('')
+  const [isSuccessMessage, setIsSuccessMessage] = useState(false)
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
@@ -17,6 +20,7 @@ export default function LoginPage({ onLogin, initialMode = 'login' }) {
   async function handleSubmit(e) {
     e.preventDefault()
     setError('')
+    setIsSuccessMessage(false)
     setLoading(true)
 
     try {
@@ -34,7 +38,7 @@ export default function LoginPage({ onLogin, initialMode = 'login' }) {
       const data = await response.json()
 
       if (!response.ok) {
-        throw new Error(data.error || 'Authentication failed')
+        throw new Error(data.error || t('login.authFailed'))
       }
 
       if (isSignup) {
@@ -42,7 +46,8 @@ export default function LoginPage({ onLogin, initialMode = 'login' }) {
         setIsSignup(false)
         setPassword('')
         setEmail('')
-        setError('Account created! Please log in.')
+        setError(t('login.accountCreated'))
+        setIsSuccessMessage(true)
         navigate('/login')
       } else {
         // After login, store user and proceed
@@ -51,6 +56,7 @@ export default function LoginPage({ onLogin, initialMode = 'login' }) {
         navigate('/dashboard')
       }
     } catch (err) {
+      setIsSuccessMessage(false)
       setError(err.message)
     } finally {
       setLoading(false)
@@ -62,43 +68,43 @@ export default function LoginPage({ onLogin, initialMode = 'login' }) {
       <div className="modal" style={{ maxWidth: '420px', width: '100%' }}>
         <div className="modal-header">
           <h3 className="modal-title">
-            {isSignup ? '🌸 Create Account' : '🌸 Welcome Back'}
+            {isSignup ? `🌸 ${t('login.createTitle')}` : `🌸 ${t('login.welcomeTitle')}`}
           </h3>
         </div>
         <form className="modal-body" onSubmit={handleSubmit}>
           <label className="field">
-            <span className="field-label">Username</span>
+            <span className="field-label">{t('login.username')}</span>
             <input
               className="input"
               type="text"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              placeholder="Enter username"
+              placeholder={t('login.usernamePlaceholder')}
               required
             />
           </label>
 
           <label className="field">
-            <span className="field-label">Password</span>
+            <span className="field-label">{t('login.password')}</span>
             <input
               className="input"
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="Enter password"
+              placeholder={t('login.passwordPlaceholder')}
               required
             />
           </label>
 
           {isSignup && (
             <label className="field">
-              <span className="field-label">Email (optional)</span>
+              <span className="field-label">{t('login.emailOptional')}</span>
               <input
                 className="input"
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="Enter email"
+                placeholder={t('login.emailPlaceholder')}
               />
             </label>
           )}
@@ -106,9 +112,9 @@ export default function LoginPage({ onLogin, initialMode = 'login' }) {
           {error && (
             <div
               style={{
-                color: error.includes('created') ? '#2e7d32' : '#d32f2f',
+                color: isSuccessMessage ? '#2e7d32' : '#d32f2f',
                 padding: '12px',
-                background: error.includes('created') ? '#e8f5e9' : '#ffebee',
+                background: isSuccessMessage ? '#e8f5e9' : '#ffebee',
                 borderRadius: '10px',
                 marginBottom: '16px',
                 fontSize: '14px',
@@ -121,7 +127,7 @@ export default function LoginPage({ onLogin, initialMode = 'login' }) {
 
           <div className="modal-actions">
             <button className="btn primary" type="submit" disabled={loading}>
-              {loading ? 'Please wait...' : (isSignup ? 'Sign Up' : 'Log In')}
+              {loading ? t('login.pleaseWait') : (isSignup ? t('login.signUp') : t('login.logIn'))}
             </button>
             <button
               className="btn ghost"
@@ -129,9 +135,10 @@ export default function LoginPage({ onLogin, initialMode = 'login' }) {
               onClick={() => {
                 setIsSignup(!isSignup)
                 setError('')
+                setIsSuccessMessage(false)
               }}
             >
-              {isSignup ? 'Already have an account? Log In' : "Don't have an account? Sign Up"}
+              {isSignup ? t('login.haveAccount') : t('login.noAccount')}
             </button>
           </div>
         </form>

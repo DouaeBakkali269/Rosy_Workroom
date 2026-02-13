@@ -37,6 +37,9 @@ export const createTask = (data) => apiRequest('tasks', { method: 'POST', body: 
 export const updateTask = (id, data) => apiRequest(`tasks/${id}`, { method: 'PUT', body: JSON.stringify(data) })
 export const deleteTask = (id) => apiRequest(`tasks/${id}`, { method: 'DELETE' })
 
+// Users
+export const searchUsers = (query) => apiRequest(`users/search?q=${encodeURIComponent(query)}`)
+
 // Projects
 export const getProjects = () => apiRequest('projects')
 export const createProject = (data) => apiRequest('projects', { method: 'POST', body: JSON.stringify(data) })
@@ -49,6 +52,10 @@ export const createTransaction = (data) => apiRequest('transactions', { method: 
 export const deleteTransaction = (id) => apiRequest(`transactions/${id}`, { method: 'DELETE' })
 
 // Kanban Cards
+export const getKanbanColumns = () => apiRequest('kanban/columns')
+export const createKanbanColumn = (data) => apiRequest('kanban/columns', { method: 'POST', body: JSON.stringify(data) })
+export const updateKanbanColumn = (key, data) => apiRequest(`kanban/columns/${encodeURIComponent(key)}`, { method: 'PUT', body: JSON.stringify(data) })
+export const deleteKanbanColumn = (key) => apiRequest(`kanban/columns/${encodeURIComponent(key)}`, { method: 'DELETE' })
 export const getKanbanCards = (projectId = 0) => apiRequest(`kanban/${projectId}`)
 export const createKanbanCard = (data) => apiRequest('kanban', { method: 'POST', body: JSON.stringify(data) })
 export const updateKanbanCard = (id, data) => apiRequest(`kanban/${id}`, { method: 'PUT', body: JSON.stringify(data) })
@@ -68,6 +75,25 @@ export const setMonthlyBudget = (data) => apiRequest('monthly-budgets', { method
 // Vision Goals
 export const getVisionGoals = () => apiRequest('vision-goals')
 export const createVisionGoal = (data) => apiRequest('vision-goals', { method: 'POST', body: JSON.stringify(data) })
+export const updateVisionGoal = async (id, data) => {
+  try {
+    return await apiRequest(`vision-goals/${id}`, { method: 'PUT', body: JSON.stringify(data) })
+  } catch (error) {
+    const message = String(error?.message || '')
+    const canRetry =
+      message.includes('Cannot PUT') ||
+      message.includes('404') ||
+      message.includes('Not Found')
+
+    if (!canRetry) throw error
+
+    try {
+      return await apiRequest(`vision-goals/${id}`, { method: 'PATCH', body: JSON.stringify(data) })
+    } catch (patchError) {
+      return apiRequest(`vision-goals/${id}/toggle`, { method: 'POST', body: JSON.stringify(data) })
+    }
+  }
+}
 export const deleteVisionGoal = (id) => apiRequest(`vision-goals/${id}`, { method: 'DELETE' })
 
 // Wishlist
@@ -75,6 +101,50 @@ export const getWishlist = () => apiRequest('wishlist')
 export const createWishlistItem = (data) => apiRequest('wishlist', { method: 'POST', body: JSON.stringify(data) })
 export const updateWishlistItem = (id, data) => apiRequest(`wishlist/${id}`, { method: 'PUT', body: JSON.stringify(data) })
 export const deleteWishlistItem = (id) => apiRequest(`wishlist/${id}`, { method: 'DELETE' })
+
+// Profile
+export const getProfile = () => apiRequest('profile')
+export const updateProfile = (data) => apiRequest('profile', { method: 'PUT', body: JSON.stringify(data) })
+export const updateProfilePassword = (data) => apiRequest('profile/password', { method: 'POST', body: JSON.stringify(data) })
+
+export const uploadProfileAvatar = async (file) => {
+  const userId = getUserId()
+  const formData = new FormData()
+  formData.append('avatar', file)
+
+  const response = await fetch(`${API_BASE}/profile/avatar`, {
+    method: 'POST',
+    headers: {
+      'X-User-ID': userId || ''
+    },
+    body: formData
+  })
+
+  if (!response.ok) {
+    const message = await response.text()
+    throw new Error(message || 'Avatar upload failed')
+  }
+
+  return response.json()
+}
+
+export const deleteProfileAvatar = async () => {
+  const userId = getUserId()
+  const response = await fetch(`${API_BASE}/profile/avatar`, {
+    method: 'DELETE',
+    headers: {
+      'X-User-ID': userId || ''
+    }
+  })
+
+  if (!response.ok) {
+    const message = await response.text()
+    throw new Error(message || 'Avatar removal failed')
+  }
+
+  if (response.status === 204) return null
+  return response.json()
+}
 
 // Wishlist Image Upload
 export const uploadWishlistImage = async (id, file) => {
