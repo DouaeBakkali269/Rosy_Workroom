@@ -1,11 +1,20 @@
-import { useMemo, useState, useEffect } from 'react'
+﻿import { useMemo, useState, useEffect } from 'react'
 import useLockBodyScroll from '../hooks/useLockBodyScroll'
 import ModalPortal from '../components/ModalPortal'
 import ConfirmModal from '../components/ConfirmModal'
-import { getVisionGoals, createVisionGoal, updateVisionGoal, deleteVisionGoal } from '../services/api'
+import {
+  getVisionGoals,
+  getVisionTypes,
+  getVisionTypePreferences,
+  createVisionType,
+  deleteVisionType,
+  createVisionGoal,
+  updateVisionGoal,
+  deleteVisionGoal
+} from '../services/api'
 import { useLanguage } from '../context/LanguageContext'
 
-const GOAL_TYPES = [
+const DEFAULT_GOAL_TYPES = [
   {
     key: 'financial',
     icon: '💰',
@@ -50,42 +59,54 @@ const GOAL_TYPES = [
   }
 ]
 
-const TYPE_BY_KEY = Object.fromEntries(GOAL_TYPES.map((item) => [item.key, item]))
-
-function normalizeType(value) {
+function normalizeType(value, typeByKey) {
   const raw = String(value || '').trim().toLowerCase()
   if (!raw) return 'personal'
   if (raw === 'health & fitness' || raw === 'health-and-fitness' || raw === 'health') return 'health_fitness'
   if (raw === 'fun & recreation' || raw === 'fun-and-recreation' || raw === 'fun') return 'fun_recreation'
-  return TYPE_BY_KEY[raw] ? raw : 'personal'
-}
-
-function prettyDate(value) {
-  if (!value) return ''
-  const d = new Date(value)
-  if (Number.isNaN(d.getTime())) return ''
-  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+  return typeByKey[raw] ? raw : 'personal'
 }
 
 export default function VisionPage() {
   const { t } = useLanguage()
   const [goals, setGoals] = useState([])
+  const [customTypes, setCustomTypes] = useState([])
+  const [disabledDefaultTypeKeys, setDisabledDefaultTypeKeys] = useState([])
   const [selectedType, setSelectedType] = useState('all')
+  const allGoalTypes = useMemo(
+    () => [
+      ...DEFAULT_GOAL_TYPES
+        .filter((item) => !disabledDefaultTypeKeys.includes(item.key))
+        .map((item) => ({ ...item, isCustom: false, isDefault: true })),
+      ...customTypes.map((item) => ({
+        ...item,
+        label: item.name,
+        desc: item.description,
+        icon: '✨',
+        isCustom: true,
+        isDefault: false
+      }))
+    ],
+    [customTypes, disabledDefaultTypeKeys]
+  )
+  const typeByKey = useMemo(
+    () => Object.fromEntries(allGoalTypes.map((item) => [item.key, item])),
+    [allGoalTypes]
+  )
   const [typeOrder, setTypeOrder] = useState(() => {
     const stored = localStorage.getItem('visionTypeOrder')
-    if (!stored) return GOAL_TYPES.map((t) => t.key)
+    if (!stored) return DEFAULT_GOAL_TYPES.map((t) => t.key)
     try {
       const parsed = JSON.parse(stored)
-      if (Array.isArray(parsed) && parsed.every((key) => TYPE_BY_KEY[key])) {
-        return parsed
-      }
-      return GOAL_TYPES.map((t) => t.key)
+      if (Array.isArray(parsed)) return parsed
+      return DEFAULT_GOAL_TYPES.map((t) => t.key)
     } catch {
-      return GOAL_TYPES.map((t) => t.key)
+      return DEFAULT_GOAL_TYPES.map((t) => t.key)
     }
   })
   const [draggingType, setDraggingType] = useState(null)
   const [isModalOpen, setIsModalOpen] = useState(false)
+  const [isTypeModalOpen, setIsTypeModalOpen] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState({ isOpen: false, goalId: null, goalTitle: '' })
   const [editingGoal, setEditingGoal] = useState(null)
   const [formData, setFormData] = useState({
@@ -93,19 +114,48 @@ export default function VisionPage() {
     description: '',
     category: 'personal'
   })
+  const [typeFormData, setTypeFormData] = useState({
+    name: '',
+    description: ''
+  })
 
-  useLockBodyScroll(isModalOpen || confirmDelete.isOpen)
+  useLockBodyScroll(isModalOpen || isTypeModalOpen || confirmDelete.isOpen)
 
   useEffect(() => {
-    loadGoals()
+    loadGoalsAndTypes()
   }, [])
 
-  async function loadGoals() {
+  useEffect(() => {
+    const allKeys = allGoalTypes.map((item) => item.key)
+    setTypeOrder((prev) => {
+      const normalizedPrev = Array.isArray(prev) ? prev.filter((key) => allKeys.includes(key)) : []
+      const missing = allKeys.filter((key) => !normalizedPrev.includes(key))
+      const next = [...normalizedPrev, ...missing]
+      if (selectedType !== 'all' && selectedType !== 'completed' && !next.includes(selectedType)) {
+        setSelectedType('all')
+      }
+      localStorage.setItem('visionTypeOrder', JSON.stringify(next))
+      return next
+    })
+  }, [allGoalTypes, selectedType])
+
+  async function loadGoalsAndTypes() {
     try {
-      const data = await getVisionGoals()
-      setGoals(Array.isArray(data) ? data : [])
+      const [goalsData, typesData, prefsData] = await Promise.all([
+        getVisionGoals(),
+        getVisionTypes(),
+        getVisionTypePreferences()
+      ])
+      setGoals(Array.isArray(goalsData) ? goalsData : [])
+      setCustomTypes(Array.isArray(typesData) ? typesData : [])
+      const disabledDefaults = Array.isArray(prefsData)
+        ? prefsData
+          .filter((item) => Boolean(item?.disabled))
+          .map((item) => String(item.key || '').trim().toLowerCase())
+        : []
+      setDisabledDefaultTypeKeys(disabledDefaults)
     } catch (error) {
-      console.error('Failed to load vision goals:', error)
+      console.error('Failed to load vision data:', error)
     }
   }
 
@@ -117,7 +167,7 @@ export default function VisionPage() {
       const payload = {
         title: formData.title.trim(),
         description: formData.description.trim(),
-        category: normalizeType(formData.category),
+        category: normalizeType(formData.category, typeByKey),
         icon: editingGoal?.icon || '✨'
       }
 
@@ -130,9 +180,38 @@ export default function VisionPage() {
       setFormData({ title: '', description: '', category: 'personal' })
       setEditingGoal(null)
       setIsModalOpen(false)
-      loadGoals()
+      loadGoalsAndTypes()
     } catch (error) {
       console.error('Failed to create vision goal:', error)
+    }
+  }
+
+  async function handleTypeSubmit(e) {
+    e.preventDefault()
+    const name = typeFormData.name.trim()
+    const description = typeFormData.description.trim()
+    if (!name || !description) return
+
+    try {
+      const created = await createVisionType({ name, description })
+      setCustomTypes((prev) => [...prev, created])
+      setTypeFormData({ name: '', description: '' })
+      setIsTypeModalOpen(false)
+    } catch (error) {
+      console.error('Failed to create vision type:', error)
+    }
+  }
+
+  async function handleDeleteType(typeKey) {
+    try {
+      await deleteVisionType(typeKey)
+      setCustomTypes((prev) => prev.filter((item) => item.key !== typeKey))
+      if (selectedType === typeKey) {
+        setSelectedType('all')
+      }
+      await loadGoalsAndTypes()
+    } catch (error) {
+      console.error('Failed to delete vision type:', error)
     }
   }
 
@@ -171,7 +250,7 @@ export default function VisionPage() {
     setFormData({
       title: goal.title || '',
       description: goal.description || '',
-      category: normalizeType(goal.category)
+      category: normalizeType(goal.category, typeByKey)
     })
     setIsModalOpen(true)
   }
@@ -188,7 +267,7 @@ export default function VisionPage() {
   async function confirmDeleteGoal() {
     try {
       await deleteVisionGoal(confirmDelete.goalId)
-      loadGoals()
+      loadGoalsAndTypes()
     } catch (error) {
       console.error('Failed to delete vision goal:', error)
     } finally {
@@ -206,20 +285,20 @@ export default function VisionPage() {
   }
 
   const { activeGoals, archivedGoals } = useMemo(() => {
-    const normalized = goals.map((goal) => ({ ...goal, category: normalizeType(goal.category) }))
-    let filtered = normalized;
+    const normalized = goals.map((goal) => ({ ...goal, category: normalizeType(goal.category, typeByKey) }))
+    let filtered = normalized
     if (selectedType === 'completed') {
-      filtered = normalized.filter((goal) => Boolean(goal.achieved));
+      filtered = normalized.filter((goal) => Boolean(goal.achieved))
     } else if (selectedType !== 'all') {
-      filtered = normalized.filter((goal) => goal.category === selectedType && !goal.achieved);
+      filtered = normalized.filter((goal) => goal.category === selectedType && !goal.achieved)
     } else {
-      filtered = normalized.filter((goal) => !goal.achieved);
+      filtered = normalized.filter((goal) => !goal.achieved)
     }
     return {
       activeGoals: selectedType === 'completed' ? [] : filtered,
       archivedGoals: selectedType === 'completed' ? filtered : normalized.filter((goal) => Boolean(goal.achieved))
     }
-  }, [goals, selectedType])
+  }, [goals, selectedType, typeByKey])
 
   return (
     <section className="page-section active">
@@ -228,13 +307,22 @@ export default function VisionPage() {
           <h2>{t('vision.title')}</h2>
           <p className="week-range">Tiny steps, big blooms for your dream life.</p>
         </div>
-        <button
-          className="btn primary"
-          type="button"
-          onClick={openAddModal}
-        >
-          + {t('vision.addGoal')}
-        </button>
+        <div className="vision-header-actions">
+          <button
+            className="btn primary"
+            type="button"
+            onClick={openAddModal}
+          >
+            + {t('vision.addGoal')}
+          </button>
+          <button
+            className="btn ghost"
+            type="button"
+            onClick={() => setIsTypeModalOpen(true)}
+          >
+            + {t('vision.addType')}
+          </button>
+        </div>
       </div>
 
       <div className="week-planner-container">
@@ -251,14 +339,14 @@ export default function VisionPage() {
               </span>
             </button>
             {typeOrder.map((key) => {
-              const type = TYPE_BY_KEY[key]
+              const type = typeByKey[key]
               if (!type) return null
               const isActive = selectedType === type.key
-              const count = goals.filter((g) => normalizeType(g.category) === type.key && !g.achieved).length
+              const count = goals.filter((g) => normalizeType(g.category, typeByKey) === type.key && !g.achieved).length
               return (
                 <button
                   key={type.key}
-                  className={`day-btn ${isActive ? 'active' : ''}`}
+                  className={`day-btn vision-type-btn ${isActive ? 'active' : ''}`}
                   type="button"
                   draggable
                   onDragStart={() => handleTypeDragStart(type.key)}
@@ -267,6 +355,19 @@ export default function VisionPage() {
                   onClick={() => setSelectedType(type.key)}
                 >
                   <span className="day-name">{type.label}</span>
+                  <button
+                    type="button"
+                    className="vision-type-delete"
+                    onClick={(e) => {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      handleDeleteType(type.key)
+                    }}
+                    title={t('common.delete')}
+                    aria-label={t('common.delete')}
+                  >
+                    ✕
+                  </button>
                   <span className="task-count">
                     {count} goals
                   </span>
@@ -293,18 +394,18 @@ export default function VisionPage() {
                 ? 'All active goals'
                 : selectedType === 'completed'
                   ? 'Achieved goals'
-                  : TYPE_BY_KEY[selectedType]?.label || 'Goals'}
+                  : typeByKey[selectedType]?.label || 'Goals'}
             </h3>
             {selectedType !== 'completed' && selectedType !== 'all' && (
               <div className="day-header-actions">
                 <span className="completion-rate">
                   {
                     goals.filter(
-                      (g) => normalizeType(g.category) === selectedType && Boolean(g.achieved)
+                      (g) => normalizeType(g.category, typeByKey) === selectedType && Boolean(g.achieved)
                     ).length
                   } achieved · {
                     goals.filter(
-                      (g) => normalizeType(g.category) === selectedType && !g.achieved
+                      (g) => normalizeType(g.category, typeByKey) === selectedType && !g.achieved
                     ).length
                   } in progress
                 </span>
@@ -313,14 +414,14 @@ export default function VisionPage() {
           </div>
 
           {selectedType !== 'all' && selectedType !== 'completed' && (
-            <p className="vision-selected-type-desc"><strong>{TYPE_BY_KEY[selectedType]?.desc}</strong></p>
+            <p className="vision-selected-type-desc"><strong>{typeByKey[selectedType]?.desc}</strong></p>
           )}
 
           <div className="vision-goals-grid">
             {selectedType === 'completed'
               ? archivedGoals.length
                 ? archivedGoals.map((goal) => {
-                    const type = TYPE_BY_KEY[normalizeType(goal.category)] || TYPE_BY_KEY.personal
+                    const type = typeByKey[normalizeType(goal.category, typeByKey)] || typeByKey.personal
                     return (
                       <article key={goal.id} className="vision-goal-card vision-goal-card-achieved">
                         <div className="vision-achieved-ribbon">
@@ -334,7 +435,7 @@ export default function VisionPage() {
                               type="button"
                               onClick={() => openEditModal(goal)}
                             >
-                              ✎
+                              ✓
                             </button>
                             <button
                               className="icon-btn vision-unachieve-icon"
@@ -343,7 +444,7 @@ export default function VisionPage() {
                               aria-label={t('vision.moveBackToGoals')}
                               onClick={() => handleToggleAchieved(goal)}
                             >
-                              ↩
+                              ✎
                             </button>
                             <button
                               className="icon-btn vision-goal-delete"
@@ -366,7 +467,7 @@ export default function VisionPage() {
                 : <div className="vision-empty-state">No achieved goals yet. You are almost there 🌸</div>
               : activeGoals.length
                 ? activeGoals.map((goal) => {
-                    const type = TYPE_BY_KEY[normalizeType(goal.category)] || TYPE_BY_KEY.personal
+                    const type = typeByKey[normalizeType(goal.category, typeByKey)] || typeByKey.personal
                     return (
                       <article key={goal.id} className="vision-goal-card">
                         <div className="vision-goal-card-head">
@@ -414,7 +515,7 @@ export default function VisionPage() {
             <div className="modal-content" onClick={(e) => e.stopPropagation()}>
               <div className="modal-header">
                 <h3>{t('vision.addGoalTitle')}</h3>
-                <button className="modal-close" onClick={() => setIsModalOpen(false)}>✕</button>
+                <button className="modal-close" onClick={() => setIsModalOpen(false)}>x</button>
               </div>
               <form className="modal-form" onSubmit={handleSubmit}>
                 <input
@@ -440,7 +541,7 @@ export default function VisionPage() {
                   value={formData.category}
                   onChange={(e) => setFormData({ ...formData, category: e.target.value })}
                 >
-                  {GOAL_TYPES.map((type) => (
+                  {allGoalTypes.map((type) => (
                     <option key={type.key} value={type.key}>{type.label}</option>
                   ))}
                 </select>
@@ -448,6 +549,43 @@ export default function VisionPage() {
                 <div className="modal-actions">
                   <button className="btn ghost" type="button" onClick={() => setIsModalOpen(false)}>{t('vision.cancel')}</button>
                   <button className="btn primary" type="submit">{t('vision.addGoalButton')}</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </ModalPortal>
+      )}
+
+      {isTypeModalOpen && (
+        <ModalPortal>
+          <div className="modal-overlay" onClick={() => setIsTypeModalOpen(false)}>
+            <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-header">
+                <h3>{t('vision.addTypeTitle')}</h3>
+                <button className="modal-close" onClick={() => setIsTypeModalOpen(false)}>x</button>
+              </div>
+              <form className="modal-form" onSubmit={handleTypeSubmit}>
+                <input
+                  className="input"
+                  type="text"
+                  value={typeFormData.name}
+                  onChange={(e) => setTypeFormData({ ...typeFormData, name: e.target.value })}
+                  placeholder={t('vision.typeNamePlaceholder')}
+                  required
+                />
+
+                <textarea
+                  className="input"
+                  value={typeFormData.description}
+                  onChange={(e) => setTypeFormData({ ...typeFormData, description: e.target.value })}
+                  placeholder={t('vision.typeDescriptionPlaceholder')}
+                  rows="4"
+                  required
+                ></textarea>
+
+                <div className="modal-actions">
+                  <button className="btn ghost" type="button" onClick={() => setIsTypeModalOpen(false)}>{t('vision.cancel')}</button>
+                  <button className="btn primary" type="submit">{t('vision.addTypeButton')}</button>
                 </div>
               </form>
             </div>
@@ -465,3 +603,4 @@ export default function VisionPage() {
     </section>
   )
 }
+

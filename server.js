@@ -18,6 +18,15 @@ const SESSION_TTL_MS = SESSION_TTL_DAYS * 24 * 60 * 60 * 1000;
 const LOGIN_WINDOW_MS = Number(process.env.LOGIN_WINDOW_MS || 15 * 60 * 1000);
 const LOGIN_MAX_ATTEMPTS = Number(process.env.LOGIN_MAX_ATTEMPTS || 8);
 const loginAttempts = new Map();
+const DEFAULT_VISION_TYPE_KEYS = new Set([
+  "financial",
+  "business",
+  "relationships",
+  "health_fitness",
+  "fun_recreation",
+  "personal",
+  "contribution"
+]);
 
 function resolvePersistentBaseDir() {
   const explicitBase = process.env.DATA_DIR || process.env.APP_DATA_DIR || null;
@@ -455,6 +464,32 @@ async function init() {
   );
 
   await run(
+    `CREATE TABLE IF NOT EXISTS vision_types (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      key TEXT NOT NULL,
+      name TEXT NOT NULL,
+      description TEXT NOT NULL,
+      position INTEGER DEFAULT 0,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(user_id, key),
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    )`
+  );
+
+  await run(
+    `CREATE TABLE IF NOT EXISTS vision_type_preferences (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      key TEXT NOT NULL,
+      disabled INTEGER DEFAULT 0,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(user_id, key),
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    )`
+  );
+
+  await run(
     `CREATE TABLE IF NOT EXISTS wishlist_items (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       item TEXT NOT NULL,
@@ -748,6 +783,17 @@ async function init() {
     await run("UPDATE vision_goals SET archived = COALESCE(achieved, 0) WHERE archived IS NULL");
   } catch (err) {
     console.error("⚠️  Failed to add achieved column to vision_goals:", err.message);
+  }
+
+  try {
+    const visionTypeColumns = await all("PRAGMA table_info(vision_types)");
+    const visionTypeExisting = new Set(visionTypeColumns.map((col) => col.name));
+    if (!visionTypeExisting.has("position")) {
+      await run("ALTER TABLE vision_types ADD COLUMN position INTEGER DEFAULT 0");
+      await run("UPDATE vision_types SET position = id WHERE position IS NULL OR position = 0");
+    }
+  } catch (err) {
+    console.error("⚠️  Failed to migrate vision_types:", err.message);
   }
 
   // Fix monthly_budgets UNIQUE constraint to include user_id
@@ -1682,6 +1728,119 @@ app.get("/api/vision-goals", async (req, res) => {
   if (!req.userId) return res.status(401).send("Unauthorized");
   const rows = await all("SELECT * FROM vision_goals WHERE user_id = ? ORDER BY id ASC", [req.userId]);
   res.json(rows);
+});
+
+app.get("/api/vision-types", async (req, res) => {
+  if (!req.userId) return res.status(401).send("Unauthorized");
+  const rows = await all(
+    "SELECT id, key, name, description, position, created_at FROM vision_types WHERE user_id = ? ORDER BY position ASC, id ASC",
+    [req.userId]
+  );
+  res.json(rows);
+});
+
+app.get("/api/vision-type-preferences", async (req, res) => {
+  if (!req.userId) return res.status(401).send("Unauthorized");
+  const rows = await all(
+    "SELECT key, disabled FROM vision_type_preferences WHERE user_id = ?",
+    [req.userId]
+  );
+  res.json(rows);
+});
+
+app.post("/api/vision-types", async (req, res) => {
+  if (!req.userId) return res.status(401).send("Unauthorized");
+  const { name, description } = req.body;
+  const trimmedName = String(name || "").trim();
+  const trimmedDescription = String(description || "").trim();
+  if (!trimmedName || !trimmedDescription) {
+    return res.status(400).json({ error: "Name and description are required" });
+  }
+
+  const baseKey = trimmedName
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "") || "custom";
+
+  const reservedKeys = new Set([
+    "financial",
+    "business",
+    "relationships",
+    "health_fitness",
+    "fun_recreation",
+    "personal",
+    "contribution",
+    "all",
+    "completed"
+  ]);
+
+  let key = baseKey;
+  let suffix = 2;
+  while (reservedKeys.has(key)) {
+    key = `${baseKey}_${suffix++}`;
+  }
+
+  while (true) {
+    const [existing] = await all(
+      "SELECT id FROM vision_types WHERE user_id = ? AND key = ? LIMIT 1",
+      [req.userId, key]
+    );
+    if (!existing) break;
+    key = `${baseKey}_${suffix++}`;
+  }
+
+  const [positionRow] = await all(
+    "SELECT COALESCE(MAX(position), 0) as maxPos FROM vision_types WHERE user_id = ?",
+    [req.userId]
+  );
+  const nextPosition = (positionRow?.maxPos || 0) + 1;
+
+  const result = await run(
+    "INSERT INTO vision_types (user_id, key, name, description, position) VALUES (?, ?, ?, ?, ?)",
+    [req.userId, key, trimmedName, trimmedDescription, nextPosition]
+  );
+  const [created] = await all(
+    "SELECT id, key, name, description, position, created_at FROM vision_types WHERE id = ?",
+    [result.lastID]
+  );
+  res.status(201).json(created);
+});
+
+app.delete("/api/vision-types/:key", async (req, res) => {
+  if (!req.userId) return res.status(401).send("Unauthorized");
+  const { key } = req.params;
+  const normalizedKey = String(key || "").trim().toLowerCase();
+  if (!normalizedKey) return res.status(400).json({ error: "Type key is required" });
+
+  const isDefaultType = DEFAULT_VISION_TYPE_KEYS.has(normalizedKey);
+
+  if (isDefaultType) {
+    await run(
+      `INSERT INTO vision_type_preferences (user_id, key, disabled)
+       VALUES (?, ?, 1)
+       ON CONFLICT(user_id, key) DO UPDATE SET disabled = 1`,
+      [req.userId, normalizedKey]
+    );
+  } else {
+    const [existing] = await all(
+      "SELECT id FROM vision_types WHERE user_id = ? AND key = ? LIMIT 1",
+      [req.userId, normalizedKey]
+    );
+    if (!existing) return res.status(404).json({ error: "Type not found" });
+  }
+
+  await run(
+    "UPDATE vision_goals SET category = 'personal' WHERE user_id = ? AND lower(category) = ?",
+    [req.userId, normalizedKey]
+  );
+
+  if (!isDefaultType) {
+    await run(
+      "DELETE FROM vision_types WHERE user_id = ? AND key = ?",
+      [req.userId, normalizedKey]
+    );
+  }
+  res.status(204).send();
 });
 
 app.post("/api/vision-goals", async (req, res) => {

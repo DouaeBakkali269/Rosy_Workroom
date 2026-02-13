@@ -2106,11 +2106,11 @@ body.modal-open {
       rgba(255, 243, 249, 0.96)
     );
   border-radius: 0;
-  padding: 18px;
+  padding: 22px;
   box-shadow: 0 10px 22px rgba(213, 111, 147, 0.14);
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
   min-height: 140px;
   max-width: 370px;
   margin: 0 auto;
@@ -3481,6 +3481,33 @@ body.modal-open {
   justify-content: space-between;
   gap: 16px;
   margin-bottom: 4px;
+}
+
+.vision-header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.vision-type-delete {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  border: none;
+  background: transparent;
+  color: rgba(173, 90, 124, 0.78);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 2px;
+  line-height: 1;
+}
+
+.vision-type-delete:hover {
+  color: #d6528e;
+}
+
+.vision-type-btn {
+  position: relative;
 }
 
 .week-range {

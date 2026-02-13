@@ -87,6 +87,10 @@ export const setMonthlyBudget = (data) => apiRequest('monthly-budgets', { method
 
 // Vision Goals
 export const getVisionGoals = () => apiRequest('vision-goals')
+export const getVisionTypes = () => apiRequest('vision-types')
+export const getVisionTypePreferences = () => apiRequest('vision-type-preferences')
+export const createVisionType = (data) => apiRequest('vision-types', { method: 'POST', body: JSON.stringify(data) })
+export const deleteVisionType = (key) => apiRequest(`vision-types/${encodeURIComponent(key)}`, { method: 'DELETE' })
 export const createVisionGoal = (data) => apiRequest('vision-goals', { method: 'POST', body: JSON.stringify(data) })
 export const updateVisionGoal = async (id, data) => {
   try {
