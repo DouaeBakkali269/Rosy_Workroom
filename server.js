@@ -18,6 +18,15 @@ const SESSION_TTL_MS = SESSION_TTL_DAYS * 24 * 60 * 60 * 1000;
 const LOGIN_WINDOW_MS = Number(process.env.LOGIN_WINDOW_MS || 15 * 60 * 1000);
 const LOGIN_MAX_ATTEMPTS = Number(process.env.LOGIN_MAX_ATTEMPTS || 8);
 const loginAttempts = new Map();
+const DEFAULT_VISION_TYPE_KEYS = new Set([
+  "financial",
+  "business",
+  "relationships",
+  "health_fitness",
+  "fun_recreation",
+  "personal",
+  "contribution"
+]);
 
 function resolvePersistentBaseDir() {
   const explicitBase = process.env.DATA_DIR || process.env.APP_DATA_DIR || null;
@@ -446,11 +455,38 @@ async function init() {
       description TEXT NOT NULL,
       icon TEXT DEFAULT '✨',
       category TEXT DEFAULT 'personal',
+      image_url TEXT,
       achieved INTEGER DEFAULT 0,
       archived INTEGER DEFAULT 0,
       achieved_at TEXT,
       user_id INTEGER,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )`
+  );
+
+  await run(
+    `CREATE TABLE IF NOT EXISTS vision_types (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      key TEXT NOT NULL,
+      name TEXT NOT NULL,
+      description TEXT NOT NULL,
+      position INTEGER DEFAULT 0,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(user_id, key),
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    )`
+  );
+
+  await run(
+    `CREATE TABLE IF NOT EXISTS vision_type_preferences (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      key TEXT NOT NULL,
+      disabled INTEGER DEFAULT 0,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(user_id, key),
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     )`
   );
 
@@ -736,6 +772,9 @@ async function init() {
       await run("ALTER TABLE vision_goals ADD COLUMN category TEXT DEFAULT 'personal'");
       await run("UPDATE vision_goals SET category = 'personal' WHERE category IS NULL OR TRIM(category) = ''");
     }
+    if (!visionExisting.has("image_url")) {
+      await run("ALTER TABLE vision_goals ADD COLUMN image_url TEXT");
+    }
     if (!visionExisting.has("archived")) {
       await run("ALTER TABLE vision_goals ADD COLUMN archived INTEGER DEFAULT 0");
       await run("UPDATE vision_goals SET archived = COALESCE(achieved, 0)");
@@ -748,6 +787,17 @@ async function init() {
     await run("UPDATE vision_goals SET archived = COALESCE(achieved, 0) WHERE archived IS NULL");
   } catch (err) {
     console.error("⚠️  Failed to add achieved column to vision_goals:", err.message);
+  }
+
+  try {
+    const visionTypeColumns = await all("PRAGMA table_info(vision_types)");
+    const visionTypeExisting = new Set(visionTypeColumns.map((col) => col.name));
+    if (!visionTypeExisting.has("position")) {
+      await run("ALTER TABLE vision_types ADD COLUMN position INTEGER DEFAULT 0");
+      await run("UPDATE vision_types SET position = id WHERE position IS NULL OR position = 0");
+    }
+  } catch (err) {
+    console.error("⚠️  Failed to migrate vision_types:", err.message);
   }
 
   // Fix monthly_budgets UNIQUE constraint to include user_id
@@ -1684,35 +1734,194 @@ app.get("/api/vision-goals", async (req, res) => {
   res.json(rows);
 });
 
+app.get("/api/vision-types", async (req, res) => {
+  if (!req.userId) return res.status(401).send("Unauthorized");
+  const rows = await all(
+    "SELECT id, key, name, description, position, created_at FROM vision_types WHERE user_id = ? ORDER BY position ASC, id ASC",
+    [req.userId]
+  );
+  res.json(rows);
+});
+
+app.get("/api/vision-type-preferences", async (req, res) => {
+  if (!req.userId) return res.status(401).send("Unauthorized");
+  const rows = await all(
+    "SELECT key, disabled FROM vision_type_preferences WHERE user_id = ?",
+    [req.userId]
+  );
+  res.json(rows);
+});
+
+app.post("/api/vision-types", async (req, res) => {
+  if (!req.userId) return res.status(401).send("Unauthorized");
+  const { name, description } = req.body;
+  const trimmedName = String(name || "").trim();
+  const trimmedDescription = String(description || "").trim();
+  if (!trimmedName || !trimmedDescription) {
+    return res.status(400).json({ error: "Name and description are required" });
+  }
+
+  const baseKey = trimmedName
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "") || "custom";
+
+  const reservedKeys = new Set([
+    "financial",
+    "business",
+    "relationships",
+    "health_fitness",
+    "fun_recreation",
+    "personal",
+    "contribution",
+    "all",
+    "completed"
+  ]);
+
+  let key = baseKey;
+  let suffix = 2;
+  while (reservedKeys.has(key)) {
+    key = `${baseKey}_${suffix++}`;
+  }
+
+  while (true) {
+    const [existing] = await all(
+      "SELECT id FROM vision_types WHERE user_id = ? AND key = ? LIMIT 1",
+      [req.userId, key]
+    );
+    if (!existing) break;
+    key = `${baseKey}_${suffix++}`;
+  }
+
+  const [positionRow] = await all(
+    "SELECT COALESCE(MAX(position), 0) as maxPos FROM vision_types WHERE user_id = ?",
+    [req.userId]
+  );
+  const nextPosition = (positionRow?.maxPos || 0) + 1;
+
+  const result = await run(
+    "INSERT INTO vision_types (user_id, key, name, description, position) VALUES (?, ?, ?, ?, ?)",
+    [req.userId, key, trimmedName, trimmedDescription, nextPosition]
+  );
+  const [created] = await all(
+    "SELECT id, key, name, description, position, created_at FROM vision_types WHERE id = ?",
+    [result.lastID]
+  );
+  res.status(201).json(created);
+});
+
+app.delete("/api/vision-types/:key", async (req, res) => {
+  if (!req.userId) return res.status(401).send("Unauthorized");
+  const { key } = req.params;
+  const normalizedKey = String(key || "").trim().toLowerCase();
+  if (!normalizedKey) return res.status(400).json({ error: "Type key is required" });
+
+  const isDefaultType = DEFAULT_VISION_TYPE_KEYS.has(normalizedKey);
+
+  if (isDefaultType) {
+    await run(
+      `INSERT INTO vision_type_preferences (user_id, key, disabled)
+       VALUES (?, ?, 1)
+       ON CONFLICT(user_id, key) DO UPDATE SET disabled = 1`,
+      [req.userId, normalizedKey]
+    );
+  } else {
+    const [existing] = await all(
+      "SELECT id FROM vision_types WHERE user_id = ? AND key = ? LIMIT 1",
+      [req.userId, normalizedKey]
+    );
+    if (!existing) return res.status(404).json({ error: "Type not found" });
+  }
+
+  await run(
+    "UPDATE vision_goals SET category = 'personal' WHERE user_id = ? AND lower(category) = ?",
+    [req.userId, normalizedKey]
+  );
+
+  if (!isDefaultType) {
+    await run(
+      "DELETE FROM vision_types WHERE user_id = ? AND key = ?",
+      [req.userId, normalizedKey]
+    );
+  }
+  res.status(204).send();
+});
+
 app.post("/api/vision-goals", async (req, res) => {
   if (!req.userId) return res.status(401).send("Unauthorized");
-  const { title, description, icon, category } = req.body;
+  const { title, description, icon, category, imageUrl } = req.body;
   if (!title || !description) {
     return res.status(400).send("Title and description required");
   }
   const normalizedCategory = String(category || "personal").trim().toLowerCase() || "personal";
+  const normalizedImageUrl = typeof imageUrl === "string" && imageUrl.trim() ? imageUrl.trim() : null;
   const result = await run(
-    "INSERT INTO vision_goals (title, description, icon, category, achieved, archived, achieved_at, user_id) VALUES (?, ?, ?, ?, 0, 0, NULL, ?)",
-    [title, description, icon || '✨', normalizedCategory, req.userId]
+    "INSERT INTO vision_goals (title, description, icon, category, image_url, achieved, archived, achieved_at, user_id) VALUES (?, ?, ?, ?, ?, 0, 0, NULL, ?)",
+    [title, description, icon || '✨', normalizedCategory, normalizedImageUrl, req.userId]
   );
   const [goal] = await all("SELECT * FROM vision_goals WHERE id = ?", [result.lastID]);
   res.status(201).json(goal);
 });
 
-async function updateVisionGoalAchieved(req, res) {
+function normalizeVisionImageUrl(value, fallback = null) {
+  if (value === undefined) return fallback;
+  if (value === null) return null;
+  if (typeof value !== "string") return fallback;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+
+async function updateVisionGoal(req, res) {
   if (!req.userId) return res.status(401).send("Unauthorized");
   const { id } = req.params;
-  const { achieved } = req.body;
+  const { achieved, title, description, icon, category, imageUrl } = req.body || {};
+  const hasAchieved = Object.prototype.hasOwnProperty.call(req.body || {}, "achieved");
+  const hasEditableFields =
+    Object.prototype.hasOwnProperty.call(req.body || {}, "title") ||
+    Object.prototype.hasOwnProperty.call(req.body || {}, "description") ||
+    Object.prototype.hasOwnProperty.call(req.body || {}, "icon") ||
+    Object.prototype.hasOwnProperty.call(req.body || {}, "category") ||
+    Object.prototype.hasOwnProperty.call(req.body || {}, "imageUrl");
 
-  if (typeof achieved !== "boolean" && achieved !== 0 && achieved !== 1) {
-    return res.status(400).json({ message: "Invalid achieved value" });
+  if (hasAchieved && !hasEditableFields) {
+    if (typeof achieved !== "boolean" && achieved !== 0 && achieved !== 1) {
+      return res.status(400).json({ message: "Invalid achieved value" });
+    }
+
+    const achievedValue = achieved ? 1 : 0;
+    await run(
+      "UPDATE vision_goals SET achieved = ?, archived = ?, achieved_at = CASE WHEN ? = 1 THEN COALESCE(achieved_at, CURRENT_TIMESTAMP) ELSE NULL END WHERE id = ? AND user_id = ?",
+      [achievedValue, achievedValue, achievedValue, id, req.userId]
+    );
+  } else if (hasEditableFields) {
+    const rows = await all(
+      "SELECT * FROM vision_goals WHERE id = ? AND user_id = ?",
+      [id, req.userId]
+    );
+    if (!rows.length) {
+      return res.status(404).json({ message: "Goal not found" });
+    }
+    const existing = rows[0];
+
+    const nextTitle = title === undefined ? existing.title : String(title || "").trim();
+    const nextDescription = description === undefined ? existing.description : String(description || "").trim();
+    if (!nextTitle || !nextDescription) {
+      return res.status(400).json({ message: "Title and description required" });
+    }
+
+    const normalizedCategory = category === undefined
+      ? (existing.category || "personal")
+      : (String(category || "personal").trim().toLowerCase() || "personal");
+    const normalizedIcon = icon === undefined ? (existing.icon || "✨") : String(icon || "✨").trim();
+    const normalizedImageUrl = normalizeVisionImageUrl(imageUrl, existing.image_url || null);
+
+    await run(
+      "UPDATE vision_goals SET title = ?, description = ?, icon = ?, category = ?, image_url = ? WHERE id = ? AND user_id = ?",
+      [nextTitle, nextDescription, normalizedIcon || "✨", normalizedCategory, normalizedImageUrl, id, req.userId]
+    );
+  } else {
+    return res.status(400).json({ message: "No valid fields to update" });
   }
-
-  const achievedValue = achieved ? 1 : 0;
-  await run(
-    "UPDATE vision_goals SET achieved = ?, archived = ?, achieved_at = CASE WHEN ? = 1 THEN COALESCE(achieved_at, CURRENT_TIMESTAMP) ELSE NULL END WHERE id = ? AND user_id = ?",
-    [achievedValue, achievedValue, achievedValue, id, req.userId]
-  );
 
   const rows = await all(
     "SELECT * FROM vision_goals WHERE id = ? AND user_id = ?",
@@ -1726,9 +1935,9 @@ async function updateVisionGoalAchieved(req, res) {
   return res.json(rows[0]);
 }
 
-app.put("/api/vision-goals/:id", updateVisionGoalAchieved);
-app.patch("/api/vision-goals/:id", updateVisionGoalAchieved);
-app.post("/api/vision-goals/:id/toggle", updateVisionGoalAchieved);
+app.put("/api/vision-goals/:id", updateVisionGoal);
+app.patch("/api/vision-goals/:id", updateVisionGoal);
+app.post("/api/vision-goals/:id/toggle", updateVisionGoal);
 
 app.delete("/api/vision-goals/:id", async (req, res) => {
   if (!req.userId) return res.status(401).send("Unauthorized");
@@ -1746,13 +1955,14 @@ app.get("/api/wishlist", async (req, res) => {
 
 app.post("/api/wishlist", async (req, res) => {
   if (!req.userId) return res.status(401).send("Unauthorized");
-  const { item, price, status } = req.body;
+  const { item, price, status, imageUrl } = req.body;
   if (!item) {
     return res.status(400).send("Item required");
   }
+  const normalizedImagePath = typeof imageUrl === "string" && imageUrl.trim() ? imageUrl.trim() : null;
   const result = await run(
-    "INSERT INTO wishlist_items (item, price, status, user_id) VALUES (?, ?, ?, ?)",
-    [item, price || '0 MAD', status || 'wishlist', req.userId]
+    "INSERT INTO wishlist_items (item, price, status, image_path, user_id) VALUES (?, ?, ?, ?, ?)",
+    [item, price || '0 MAD', status || 'wishlist', normalizedImagePath, req.userId]
   );
   const [wishlistItem] = await all("SELECT * FROM wishlist_items WHERE id = ?", [result.lastID]);
   res.status(201).json(wishlistItem);
@@ -1764,17 +1974,21 @@ app.put("/api/wishlist/:id", async (req, res) => {
   const existing = await all("SELECT * FROM wishlist_items WHERE id = ? AND user_id = ?", [id, req.userId]);
   if (!existing.length) return res.status(404).send("Not found");
   
-  const { status, purchased_date, item, price } = req.body;
+  const { status, purchased_date, item, price, imageUrl } = req.body;
+  const normalizedImagePath = imageUrl === undefined
+    ? existing[0].image_path
+    : (typeof imageUrl === "string" && imageUrl.trim() ? imageUrl.trim() : null);
   const next = {
     item: item ?? existing[0].item,
     price: price ?? existing[0].price,
     status: status ?? existing[0].status,
-    purchased_date: purchased_date ?? existing[0].purchased_date
+    purchased_date: purchased_date ?? existing[0].purchased_date,
+    image_path: normalizedImagePath
   };
   
   await run(
-    "UPDATE wishlist_items SET item = ?, price = ?, status = ?, purchased_date = ? WHERE id = ? AND user_id = ?",
-    [next.item, next.price, next.status, next.purchased_date, id, req.userId]
+    "UPDATE wishlist_items SET item = ?, price = ?, status = ?, purchased_date = ?, image_path = ? WHERE id = ? AND user_id = ?",
+    [next.item, next.price, next.status, next.purchased_date, next.image_path, id, req.userId]
   );
   
   const [item_result] = await all("SELECT * FROM wishlist_items WHERE id = ?", [id]);
@@ -1810,7 +2024,7 @@ app.post("/api/wishlist/:id/upload-image", upload.single("image"), async (req, r
     console.log("✅ Item found:", existing[0].item);
 
     // Delete old image if it exists
-    if (existing[0].image_path) {
+    if (existing[0].image_path && existing[0].image_path.startsWith("/uploads/")) {
       const oldPath = path.join(uploadsDir, path.basename(existing[0].image_path));
       if (fs.existsSync(oldPath)) {
         fs.unlinkSync(oldPath);
@@ -1845,7 +2059,7 @@ app.delete("/api/wishlist/:id/delete-image", async (req, res) => {
     if (!existing.length) return res.status(404).send("Item not found");
 
     // Delete image file if it exists
-    if (existing[0].image_path) {
+    if (existing[0].image_path && existing[0].image_path.startsWith("/uploads/")) {
       const imagePath = path.join(uploadsDir, path.basename(existing[0].image_path));
       if (fs.existsSync(imagePath)) {
         fs.unlinkSync(imagePath);

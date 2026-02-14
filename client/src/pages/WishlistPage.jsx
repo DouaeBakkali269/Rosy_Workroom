@@ -23,7 +23,8 @@ export default function WishlistPage() {
   const [selectedFile, setSelectedFile] = useState(null)
   const [formData, setFormData] = useState({
     item: '',
-    price: ''
+    price: '',
+    imageUrl: ''
   })
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState({ isOpen: false, itemId: null, itemName: '' })
@@ -47,14 +48,14 @@ export default function WishlistPage() {
 
   function openAddModal() {
     setEditingItem(null)
-    setFormData({ item: '', price: '' })
+    setFormData({ item: '', price: '', imageUrl: '' })
     setSelectedFile(null)
     setIsModalOpen(true)
   }
 
   function openEditModal(item) {
     setEditingItem(item)
-    setFormData({ item: item.item, price: item.price })
+    setFormData({ item: item.item, price: item.price, imageUrl: item.image_path || '' })
     setSelectedFile(null)
     setIsModalOpen(true)
   }
@@ -73,16 +74,18 @@ export default function WishlistPage() {
         await updateWishlistItem(editingItem.id, {
           item: formData.item,
           price: formData.price,
-          status: editingItem.status
+          status: editingItem.status,
+          imageUrl: formData.imageUrl
         })
-        itemData = { ...editingItem, item: formData.item, price: formData.price }
+        itemData = { ...editingItem, item: formData.item, price: formData.price, image_path: formData.imageUrl || null }
       } else {
         // Create new item
         console.log('Creating new item:', formData)
         itemData = await createWishlistItem({
           item: formData.item,
           price: formData.price || '0 MAD',
-          status: 'wishlist'
+          status: 'wishlist',
+          imageUrl: formData.imageUrl
         })
         console.log('Item created with ID:', itemData.id)
       }
@@ -99,7 +102,7 @@ export default function WishlistPage() {
         }
       }
 
-      setFormData({ item: '', price: '' })
+      setFormData({ item: '', price: '', imageUrl: '' })
       setSelectedFile(null)
       setEditingItem(null)
       setIsModalOpen(false)
@@ -197,12 +200,21 @@ export default function WishlistPage() {
                   placeholder={t('wishlist.pricePlaceholder')}
                   disabled={isSubmitting}
                 />
+                <input
+                  className="input"
+                  type="url"
+                  value={formData.imageUrl}
+                  onChange={(e) => setFormData({ ...formData, imageUrl: e.target.value })}
+                  placeholder={t('wishlist.imageUrlPlaceholder')}
+                  disabled={isSubmitting}
+                />
 
                 <ImageUpload
                   onImageSelect={setSelectedFile}
-                  currentImage={editingItem?.image_path}
+                  currentImage={selectedFile ? '' : formData.imageUrl}
                   onRemoveImage={() => {
                     setSelectedFile(null)
+                    setFormData((prev) => ({ ...prev, imageUrl: '' }))
                   }}
                 />
 

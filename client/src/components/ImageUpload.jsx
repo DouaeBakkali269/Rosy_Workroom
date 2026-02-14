@@ -7,11 +7,12 @@ export default function ImageUpload({ onImageSelect, currentImage, onRemoveImage
   const [preview, setPreview] = useState(null)
 
   useEffect(() => {
-    // If editing and item has an image, show it
-    if (currentImage && !preview) {
-      setPreview(currentImage)
-    }
-  }, [currentImage, preview])
+    setPreview((prev) => {
+      const isLocalFilePreview = typeof prev === 'string' && prev.startsWith('data:image/')
+      if (isLocalFilePreview) return prev
+      return currentImage || null
+    })
+  }, [currentImage])
 
   function handleDrag(e) {
     e.preventDefault()
