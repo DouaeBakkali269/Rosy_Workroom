@@ -39,7 +39,7 @@ export default function Navbar({ user, onLogout }) {
       {/* DESKTOP NAVBAR */}
       <nav className="navbar navbar-desktop">
         <div className="navbar-brand">
-          <div className="logo">RW</div>
+          <img src="/logo.png" alt="Rosy Workroom" className="navbar-logo-img" />
         </div>
 
         <div className="nav-items">
@@ -77,7 +77,7 @@ export default function Navbar({ user, onLogout }) {
               onClick={() => navigate('/dashboard')}
               title="Rosy Workroom"
             >
-              RW
+              <img src="/logo.png" alt="Rosy Workroom" className="mobile-logo-img" />
             </button>
             {mobileTabs.map(tab => (
               <div key={tab.id}>

@@ -2,13 +2,14 @@ import { useState, useEffect } from 'react'
 import useLockBodyScroll from '../hooks/useLockBodyScroll'
 import ModalPortal from '../components/ModalPortal'
 import ConfirmModal from '../components/ConfirmModal'
-import { getNotes, createNote, deleteNote } from '../services/api'
+import { getNotes, createNote, updateNote, deleteNote } from '../services/api'
 import { useLanguage } from '../context/LanguageContext'
 
 export default function NotesPage() {
   const { t } = useLanguage()
   const [notes, setNotes] = useState([])
   const [isModalOpen, setIsModalOpen] = useState(false)
+  const [editingNote, setEditingNote] = useState(null)
   const [loading, setLoading] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState({ isOpen: false, noteId: null, noteTitle: '' })
   const [formData, setFormData] = useState({
@@ -39,29 +40,54 @@ export default function NotesPage() {
     e.preventDefault()
     const { title, content, tags } = formData
     if (!title.trim() || !content.trim()) return
-    
+
     try {
       setLoading(true)
-      const tagsArray = tags.split(',').map(tag => tag.trim()).filter(tag => tag)
-      
-      const newNote = await createNote({
-        title,
-        content,
-        tags: tagsArray
-      })
-      
-      setNotes([newNote, ...notes])
+      const tagsArray = tags.split(',').map((tag) => tag.trim()).filter((tag) => tag)
+
+      if (editingNote) {
+        const updated = await updateNote(editingNote.id, {
+          title,
+          content,
+          tags: tagsArray
+        })
+        setNotes(notes.map((note) => (note.id === editingNote.id ? updated : note)))
+      } else {
+        const newNote = await createNote({
+          title,
+          content,
+          tags: tagsArray
+        })
+        setNotes([newNote, ...notes])
+      }
       setFormData({ title: '', content: '', tags: '' })
+      setEditingNote(null)
       setIsModalOpen(false)
     } catch (error) {
-      console.error('Failed to create note:', error)
+      console.error('Failed to save note:', error)
     } finally {
       setLoading(false)
     }
   }
 
+  function openAddModal() {
+    setEditingNote(null)
+    setFormData({ title: '', content: '', tags: '' })
+    setIsModalOpen(true)
+  }
+
+  function openEditModal(note) {
+    setEditingNote(note)
+    setFormData({
+      title: note.title || '',
+      content: note.content || '',
+      tags: Array.isArray(note.tags) ? note.tags.join(', ') : ''
+    })
+    setIsModalOpen(true)
+  }
+
   function handleDelete(id) {
-    const note = notes.find(n => n.id === id)
+    const note = notes.find((n) => n.id === id)
     setConfirmDelete({
       isOpen: true,
       noteId: id,
@@ -73,7 +99,7 @@ export default function NotesPage() {
     try {
       setLoading(true)
       await deleteNote(confirmDelete.noteId)
-      setNotes(notes.filter(n => n.id !== confirmDelete.noteId))
+      setNotes(notes.filter((n) => n.id !== confirmDelete.noteId))
     } catch (error) {
       console.error('Failed to delete note:', error)
     } finally {
@@ -86,16 +112,18 @@ export default function NotesPage() {
     <section className="page-section active">
       <div className="section-header">
         <h2>{t('notes.title')}</h2>
-        <button className="btn primary" onClick={() => setIsModalOpen(true)}>{t('notes.newNote')}</button>
+        <button className="btn primary" onClick={openAddModal}>
+          {t('notes.newNote')}
+        </button>
       </div>
 
       {isModalOpen && (
         <ModalPortal>
-          <div className="modal-overlay" onClick={() => setIsModalOpen(false)}>
+          <div className="modal-overlay" onClick={() => { setIsModalOpen(false); setEditingNote(null) }}>
             <div className="modal-content" onClick={(e) => e.stopPropagation()}>
               <div className="modal-header">
-                <h3>{t('notes.addNoteTitle')}</h3>
-                <button className="modal-close" onClick={() => setIsModalOpen(false)}>✕</button>
+                <h3>{editingNote ? t('notes.editNoteTitle') : t('notes.addNoteTitle')}</h3>
+                <button className="modal-close" onClick={() => { setIsModalOpen(false); setEditingNote(null) }}>x</button>
               </div>
               <form className="modal-form" onSubmit={handleSubmit}>
                 <input
@@ -122,8 +150,8 @@ export default function NotesPage() {
                   placeholder={t('notes.noteTagsPlaceholder')}
                 />
                 <div className="modal-actions">
-                  <button className="btn ghost" type="button" onClick={() => setIsModalOpen(false)}>{t('common.cancel')}</button>
-                  <button className="btn primary" type="submit">{t('notes.addNoteButton')}</button>
+                  <button className="btn ghost" type="button" onClick={() => { setIsModalOpen(false); setEditingNote(null) }}>{t('common.cancel')}</button>
+                  <button className="btn primary" type="submit">{editingNote ? t('common.save') : t('notes.addNoteButton')}</button>
                 </div>
               </form>
             </div>
@@ -131,28 +159,46 @@ export default function NotesPage() {
         </ModalPortal>
       )}
 
-      <div className="notes-grid">
-        {notes.length === 0 ? (
-          <div className="empty-state">{t('notes.empty')} 📝</div>
+      <div className="notes-card-stage">
+        {loading && notes.length === 0 ? (
+          <div className="notes-empty-board">Loading notes...</div>
+        ) : notes.length === 0 ? (
+          <div className="notes-empty-board">{t('notes.empty')}</div>
         ) : (
-          notes.map(note => (
-            <div key={note.id} className="note-card">
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}>
-                <div className="note-title">{note.title}</div>
-                <button className="icon-btn" onClick={() => handleDelete(note.id)}>✕</button>
-              </div>
-              <p>{note.content}</p>
-              {note.tags && note.tags.length > 0 && (
-                <div className="note-tags">
-                  {note.tags.map((tag, idx) => (
-                    <span key={idx}>{tag}</span>
-                  ))}
-                </div>
-              )}
-            </div>
-          ))
+          <div className="notes-pin-grid">
+            {notes.map((note) => (
+              <article key={note.id} className="notes-pin-card">
+                <div className="notes-pin-thumbtack" aria-hidden="true" />
+                <button
+                  className="icon-btn notes-pin-edit"
+                  onClick={() => openEditModal(note)}
+                  aria-label={t('common.edit')}
+                  title={t('common.edit')}
+                >
+                  ✎
+                </button>
+                <button
+                  className="notes-pin-close"
+                  onClick={() => handleDelete(note.id)}
+                  aria-label={t('common.delete')}
+                >
+                  x
+                </button>
+                <div className="notes-pin-title">{note.title}</div>
+                <p className="notes-pin-content">{note.content}</p>
+                {note.tags && note.tags.length > 0 && (
+                  <div className="notes-pin-tags">
+                    {note.tags.map((tag, idx) => (
+                      <span key={idx}>{tag}</span>
+                    ))}
+                  </div>
+                )}
+              </article>
+            ))}
+          </div>
         )}
       </div>
+
       <ConfirmModal
         isOpen={confirmDelete.isOpen}
         onConfirm={confirmDeleteNote}
