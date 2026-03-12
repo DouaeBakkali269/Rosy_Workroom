@@ -104,6 +104,10 @@ function App() {
               element={<RequireAuth user={user}><ProjectsPage /></RequireAuth>}
             />
             <Route
+              path="/projects/:id"
+              element={<RequireAuth user={user}><ProjectsPage /></RequireAuth>}
+            />
+            <Route
               path="/kanban"
               element={<RequireAuth user={user}><KanbanPage /></RequireAuth>}
             />

@@ -1291,7 +1291,7 @@ app.get("/api/kanban/columns", async (req, res) => {
     rows = await all(
       `SELECT key, name, position
        FROM kanban_columns
-       WHERE (user_id IS NULL AND project_id IS NULL) OR project_id = ?
+       WHERE project_id = ?
        ORDER BY position ASC, id ASC`,
       [projectId]
     );

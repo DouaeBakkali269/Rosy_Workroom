@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import useLockBodyScroll from '../hooks/useLockBodyScroll'
 import ModalPortal from './ModalPortal'
-import { getKanbanCards, createKanbanCard, updateKanbanCard, deleteKanbanCard, getKanbanColumns, createKanbanColumn, updateKanbanColumn, deleteKanbanColumn } from '../services/api'
+import { getKanbanCards, createKanbanCard, updateKanbanCard, deleteKanbanCard, getKanbanColumns, createKanbanColumn, updateKanbanColumn, deleteKanbanColumn, updateProject, searchUsers } from '../services/api'
 import TaskDetails from './TaskDetails'
 import ConfirmModal from './ConfirmModal'
 import { useLanguage } from '../context/LanguageContext'
@@ -64,7 +64,22 @@ function getChecklistStats(card) {
   return { total: 0, completed: 0 }
 }
 
+function initialsFromName(name = '') {
+  return name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map(part => part[0]?.toUpperCase())
+    .join('') || '?'
+}
+
+function i18nLabel(t, key, fallback) {
+  const value = t ? t(key) : ''
+  return value && value !== key ? value : fallback
+}
+
 export default function ProjectKanban({ project, onBack }) {
+    const [addCardColumn, setAddCardColumn] = useState(null)
   const { t } = useLanguage()
   const [cards, setCards] = useState([])
   const [isModalOpen, setIsModalOpen] = useState(false)
@@ -74,15 +89,20 @@ export default function ProjectKanban({ project, onBack }) {
   const [selectedCard, setSelectedCard] = useState(null)
   const draggedCardRef = useRef(null)
   const [columns, setColumns] = useState(DEFAULT_COLUMNS)
+  const [draggedColumnKey, setDraggedColumnKey] = useState(null)
   const [newColumnName, setNewColumnName] = useState('')
   const [editingColumnKey, setEditingColumnKey] = useState(null)
   const [editingColumnName, setEditingColumnName] = useState('')
   const [showAddColumn, setShowAddColumn] = useState(false)
   const [showMembersList, setShowMembersList] = useState(false)
-  const [confirmDeleteColumn, setConfirmDeleteColumn] = useState({ isOpen: false, key: null, name: '' })
+  const [confirmDeleteColumn, setConfirmDeleteColumn] = useState({ isOpen: false, key: null, id: null, name: '' })
+  const [members, setMembers] = useState(Array.isArray(project.members) ? project.members : [])
+  const [memberInput, setMemberInput] = useState('')
+  const [memberSuggestions, setMemberSuggestions] = useState([])
+  const [memberError, setMemberError] = useState('')
+  const [showMemberModal, setShowMemberModal] = useState(false)
   const [formData, setFormData] = useState({
     title: '',
-    label: '',
     status: 'todo',
     priority: '',
     dueDate: '',
@@ -94,24 +114,83 @@ export default function ProjectKanban({ project, onBack }) {
   useEffect(() => {
     loadCards()
     loadColumns()
+    setMembers(Array.isArray(project.members) ? project.members : [])
   }, [project.id])
+
+  async function updateColumnWithFallback(key, data) {
+    try {
+      return await updateKanbanColumn(key, data, project.id)
+    } catch (err) {
+      if (String(err?.message || '').toLowerCase().includes('not found')) {
+        return updateKanbanColumn(key, data, 0)
+      }
+      throw err
+    }
+  }
 
   async function loadCards() {
     const data = await getKanbanCards(project.id)
     setCards(data)
   }
 
+  async function handleAddMember(e) {
+    e?.preventDefault()
+    const username = memberInput.trim()
+    if (!username) return
+    if (members.some(m => m.toLowerCase() === username.toLowerCase())) {
+      setMemberError(t('Member already Exists') || 'Member already added')
+      return
+    }
+    try {
+      const users = await searchUsers(username)
+      const exact = (Array.isArray(users) ? users : []).find(
+        (u) => String(u.username).toLowerCase() === username.toLowerCase()
+      )
+      if (!exact) {
+        setMemberError(t('projects.userNotFound')?.replace('{user}', username) || 'User not found')
+        setMemberSuggestions(Array.isArray(users) ? users : [])
+        return
+      }
+      const nextMembers = [...members, exact.username]
+      await updateProject(project.id, { members: nextMembers })
+      setMembers(nextMembers)
+      setMemberInput('')
+      setMemberSuggestions([])
+      setMemberError('')
+      setShowMemberModal(false)
+    } catch (err) {
+      console.error('Failed to add member', err)
+      setMemberError(t('projects.memberSearchError') || 'Unable to add member')
+    }
+  }
+
+  async function handleMemberInput(value) {
+    setMemberInput(value)
+    const query = value.trim()
+    if (!query) {
+      setMemberSuggestions([])
+      setMemberError('')
+      return
+    }
+    try {
+      const results = await searchUsers(query)
+      setMemberSuggestions(Array.isArray(results) ? results : [])
+      setMemberError('')
+    } catch (err) {
+      console.error('Failed to fetch suggestions', err)
+      setMemberSuggestions([])
+      setMemberError(t('projects.memberSearchError') || 'Error searching users')
+    }
+  }
+
   async function loadColumns() {
     try {
       const data = await getKanbanColumns(project.id)
-      if (Array.isArray(data) && data.length) {
-        const merged = mergeWithDefaultColumns(data)
-        setColumns(merged)
-        if (!merged.some(col => col.key === formData.status)) {
-          setFormData((prev) => ({ ...prev, status: merged[0].key }))
-        }
-      } else {
-        setColumns(DEFAULT_COLUMNS)
+      const hydrated = Array.isArray(data) && data.length ? data : DEFAULT_COLUMNS
+      const merged = mergeWithDefaultColumns(hydrated).sort((a, b) => (a.position || 0) - (b.position || 0))
+      setColumns(merged)
+      if (!merged.some(col => col.key === formData.status)) {
+        setFormData((prev) => ({ ...prev, status: merged[0].key }))
       }
     } catch (err) {
       console.error('Failed to load columns:', err)
@@ -128,7 +207,7 @@ export default function ProjectKanban({ project, onBack }) {
       priority: formData.priority || null,
       description: formData.description || null
     })
-    setFormData({ title: '', label: '', status: columns[0]?.key || 'todo', priority: '', dueDate: '', description: '' })
+    setFormData({ title: '', status: columns[0]?.key || 'todo', priority: '', dueDate: '', description: '' })
     setIsModalOpen(false)
     loadCards()
   }
@@ -137,7 +216,11 @@ export default function ProjectKanban({ project, onBack }) {
     const name = newColumnName.trim()
     if (!name) return
     try {
-      const created = await createKanbanColumn({ name, projectId: project.id })
+      const created = await createKanbanColumn({
+        name,
+        projectId: project.id,
+        position: (columns[columns.length - 1]?.position || columns.length) + 1
+      })
       setColumns((prev) => [...prev, created])
       setNewColumnName('')
     } catch (err) {
@@ -149,8 +232,10 @@ export default function ProjectKanban({ project, onBack }) {
     const trimmed = name.trim()
     if (!trimmed) return
     try {
-      const updated = await updateKanbanColumn(key, { name: trimmed, projectId: project.id })
-      setColumns((prev) => prev.map(col => (col.key === key ? updated : col)))
+      const updated = await updateColumnWithFallback(key, { name: trimmed })
+      if (updated) {
+        setColumns((prev) => prev.map(col => (col.key === key ? { ...col, ...updated } : col)))
+      }
     } catch (err) {
       console.error('Failed to rename column:', err)
     }
@@ -161,19 +246,34 @@ export default function ProjectKanban({ project, onBack }) {
     setConfirmDeleteColumn({
       isOpen: true,
       key,
+      id: column?.id ?? null,
       name: column?.name || t('kanban.thisColumn')
     })
   }
 
   async function handleConfirmDeleteColumn() {
     try {
-      await deleteKanbanColumn(confirmDeleteColumn.key, project.id)
+      const target = confirmDeleteColumn.id ?? confirmDeleteColumn.key
+      await deleteKanbanColumn(target, project.id)
       await loadColumns()
       await loadCards()
     } catch (err) {
+      // fallback: try personal scope if project-scoped delete fails (404)
+      if (String(err?.message || '').toLowerCase().includes('not found')) {
+        try {
+          const target = confirmDeleteColumn.id ?? confirmDeleteColumn.key
+          await deleteKanbanColumn(target, 0)
+          await loadColumns()
+          await loadCards()
+          setConfirmDeleteColumn({ isOpen: false, key: null, id: null, name: '' })
+          return
+        } catch (inner) {
+          console.error('Failed fallback delete column:', inner)
+        }
+      }
       console.error('Failed to delete column:', err)
     } finally {
-      setConfirmDeleteColumn({ isOpen: false, key: null, name: '' })
+      setConfirmDeleteColumn({ isOpen: false, key: null, id: null, name: '' })
     }
   }
 
@@ -265,6 +365,31 @@ export default function ProjectKanban({ project, onBack }) {
     setDragOverCardId(null)
   }
 
+  function handleColumnDragStart(key) {
+    setDraggedColumnKey(key)
+  }
+
+  async function handleColumnDrop(targetKey) {
+    if (!draggedColumnKey || draggedColumnKey === targetKey) return
+    const order = [...columns]
+    const from = order.findIndex(c => c.key === draggedColumnKey)
+    const to = order.findIndex(c => c.key === targetKey)
+    if (from === -1 || to === -1) return
+    const [moved] = order.splice(from, 1)
+    order.splice(to, 0, moved)
+    const reindexed = order.map((col, idx) => ({ ...col, position: idx + 1 }))
+    setColumns(reindexed)
+    // persist new positions with fallback (project then global)
+    try {
+      await Promise.all(
+        reindexed.map((col) => updateColumnWithFallback(col.key, { position: col.position }))
+      )
+    } catch (err) {
+      console.error('Failed to persist column order:', err)
+    }
+    setDraggedColumnKey(null)
+  }
+
   async function handleDelete(id) {
     await deleteKanbanCard(id)
     loadCards()
@@ -293,64 +418,74 @@ export default function ProjectKanban({ project, onBack }) {
 
   return (
     <section className="page-section active">
-      <div className="section-header">
-        <button className="btn ghost" onClick={onBack}>← {t('projects.backToProjects')}</button>
-        <h2>{project.name} - {t('kanban.title')}</h2>
-      </div>
-      
-      <div className="project-actions">
-        <div className="kanban-action-group">
-          <div className="kanban-action-row">
-            <button className="btn primary" onClick={() => setIsModalOpen(true)}>{t('kanban.addTask')}</button>
-            <div className="kanban-action-popover">
-              <button className="btn ghost" type="button" onClick={() => setShowMembersList((value) => !value)}>
-                {t('kanban.members')}
-              </button>
-              {showMembersList && (
-                <div className="kanban-column-add-popover">
-                  <div className="project-members-list">
-                    {(project.members || []).length === 0 ? (
-                      <p className="history-empty">{t('kanban.noMembers')}</p>
-                    ) : (
-                      project.members.map((member) => (
-                        <div key={member} className="project-member-row">{member}</div>
-                      ))
-                    )}
-                  </div>
+      <div className="project-kanban-header">
+        <h2 className="project-kanban-title">{project.name} - {t('kanban.title')}</h2>
+        <div className="project-kanban-actions">
+          <div className="kanban-members-wrap">
+            <div className="kanban-member-avatars">
+              {(members || []).map((member) => (
+                <div key={member} className="member-avatar" title={member}>
+                  {initialsFromName(member)}
                 </div>
-              )}
+              ))}
             </div>
-            <div className="kanban-action-popover">
-              <button className="btn ghost" type="button" onClick={() => setShowAddColumn((value) => !value)}>
-                {t('kanban.addColumn')}
-              </button>
-              {showAddColumn && (
-                <div className="kanban-column-add-popover">
-                  <div className="kanban-column-add-input">
-                    <input
-                      className="input"
-                      type="text"
-                      value={newColumnName}
-                      onChange={(e) => setNewColumnName(e.target.value)}
-                      placeholder={t('kanban.columnNamePlaceholder')}
-                    />
-                    <button
-                      className="btn ghost"
-                      type="button"
-                      onClick={async () => {
-                        await handleAddColumn()
-                        setShowAddColumn(false)
-                      }}
-                    >
-                      {t('kanban.addColumnButton')}
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
+            <button className="btn primary boxy" type="button" onClick={() => setShowMemberModal(true)}>
+              {i18nLabel(t, 'kanban.addMember', 'Add member')}
+            </button>
           </div>
         </div>
       </div>
+
+      {showMemberModal && (
+        <ModalPortal>
+          <div className="modal-overlay" onClick={() => setShowMemberModal(false)}>
+            <div className="modal" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-header">
+                <h3 className="modal-title">{i18nLabel(t, 'kanban.addMember', 'Add member')}</h3>
+                <button className="modal-close" onClick={() => setShowMemberModal(false)}>✕</button>
+              </div>
+              <form className="modal-body" onSubmit={handleAddMember}>
+                <label className="field">
+                  <span className="field-label">{t('projects.members')}</span>
+                <input
+                  className="input"
+                  type="text"
+                  value={memberInput}
+                    placeholder={i18nLabel(t, 'kanban.addMemberPlaceholder', 'Type a username')}
+                    onChange={(e) => handleMemberInput(e.target.value)}
+                  />
+                </label>
+                {memberSuggestions.length > 0 && (
+                  <div className="member-suggestions">
+                    {memberSuggestions.map((user) => (
+                      <button
+                        key={user.username}
+                        type="button"
+                        className="member-suggestion"
+                        onClick={() => {
+                          setMemberInput(user.username)
+                          setMemberSuggestions([])
+                        }}
+                      >
+                        {user.username}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {memberError && <p className="form-error">{memberError}</p>}
+                <div className="modal-actions">
+                  <button className="btn ghost" type="button" onClick={() => setShowMemberModal(false)}>
+                    {t('common.cancel')}
+                  </button>
+                  <button className="btn primary" type="submit">
+                    {i18nLabel(t, 'kanban.addMember', 'Add member')}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </ModalPortal>
+      )}
 
       {isModalOpen && (
         <ModalPortal>
@@ -363,44 +498,17 @@ export default function ProjectKanban({ project, onBack }) {
               <form className="modal-body" onSubmit={handleSubmit}>
                 <label className="field">
                   <span className="field-label">{t('kanban.cardTitle')}</span>
-                  <input
-                    className="input"
-                    type="text"
-                    value={formData.title}
-                    onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                    placeholder={t('kanban.cardTitle')}
-                    required
-                  />
-                </label>
-                <label className="field">
-                  <span className="field-label">{t('kanban.label')}</span>
-                  <input
-                    className="input"
-                    type="text"
-                    value={formData.label}
-                    onChange={(e) => setFormData({ ...formData, label: e.target.value })}
-                    placeholder={t('kanban.label')}
-                  />
+                  <input className="input" type="text" value={formData.title} onChange={(e) => setFormData({ ...formData, title: e.target.value })} placeholder={t('kanban.cardTitle')} required />
                 </label>
                 <label className="field">
                   <span className="field-label">{t('kanban.status')}</span>
-                  <select
-                    className="input"
-                    value={formData.status}
-                    onChange={(e) => setFormData({ ...formData, status: e.target.value })}
-                  >
-                    {columns.map(col => (
-                      <option key={col.key} value={col.key}>{col.name}</option>
-                    ))}
+                  <select className="input" value={formData.status} onChange={(e) => setFormData({ ...formData, status: e.target.value })}>
+                    {columns.map(col => <option key={col.key} value={col.key}>{col.name}</option>)}
                   </select>
                 </label>
                 <label className="field">
                   <span className="field-label">{t('task.priority')}</span>
-                  <select
-                    className="input"
-                    value={formData.priority}
-                    onChange={(e) => setFormData({ ...formData, priority: e.target.value })}
-                  >
+                  <select className="input" value={formData.priority} onChange={(e) => setFormData({ ...formData, priority: e.target.value })}>
                     <option value="">{t('common.none')}</option>
                     <option value="low">{t('task.priorityLow')}</option>
                     <option value="medium">{t('task.priorityMedium')}</option>
@@ -409,22 +517,11 @@ export default function ProjectKanban({ project, onBack }) {
                 </label>
                 <label className="field">
                   <span className="field-label">{t('kanban.dueDate')}</span>
-                  <input
-                    className="input"
-                    type="date"
-                    value={formData.dueDate}
-                    onChange={(e) => setFormData({ ...formData, dueDate: e.target.value })}
-                  />
+                  <input className="input" type="date" value={formData.dueDate} onChange={(e) => setFormData({ ...formData, dueDate: e.target.value })} />
                 </label>
                 <label className="field">
                   <span className="field-label">{t('kanban.descriptionOptional')}</span>
-                  <textarea
-                    className="input"
-                    rows={3}
-                    value={formData.description}
-                    onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                    placeholder={t('kanban.descriptionPlaceholder')}
-                  />
+                  <textarea className="input" rows={3} value={formData.description} onChange={(e) => setFormData({ ...formData, description: e.target.value })} placeholder={t('kanban.descriptionPlaceholder')} />
                 </label>
                 <div className="modal-actions">
                   <button className="btn ghost" type="button" onClick={() => setIsModalOpen(false)}>{t('common.cancel')}</button>
@@ -437,164 +534,37 @@ export default function ProjectKanban({ project, onBack }) {
       )}
 
       {selectedCard && (
-        <TaskDetails
-          card={selectedCard}
-          collaborators={Array.isArray(project.members) ? project.members : []}
-          onClose={() => setSelectedCard(null)}
-          onUpdate={() => {
-            loadCards()
-          }}
-          onRefresh={async () => {
-            await loadCards()
-            // Update selectedCard with fresh data
-            const updatedCards = await getKanbanCards(project.id)
-            const refreshedCard = updatedCards.find(c => c.id === selectedCard.id)
-            if (refreshedCard) setSelectedCard(refreshedCard)
-          }}
-        />
+        <TaskDetails card={selectedCard} collaborators={Array.isArray(project.members) ? project.members : []} onClose={() => setSelectedCard(null)} onUpdate={() => loadCards()} onRefresh={async () => { await loadCards(); const updatedCards = await getKanbanCards(project.id); const refreshedCard = updatedCards.find(c => c.id === selectedCard.id); if (refreshedCard) setSelectedCard(refreshedCard); }} />
       )}
 
       <div className="kanban">
         {columnsWithCards.map(({ column, cards: columnCards }) => (
-          <div key={column.key} className="kanban-col">
+          <div key={column.key} className="kanban-col" draggable onDragStart={() => handleColumnDragStart(column.key)} onDragOver={(e) => e.preventDefault()} onDrop={() => handleColumnDrop(column.key)}>
             <div className="kanban-title">
               <div className="kanban-title-row">
                 {editingColumnKey === column.key ? (
-                  <input
-                    className="input kanban-title-input"
-                    type="text"
-                    value={editingColumnName}
-                    onChange={(e) => setEditingColumnName(e.target.value)}
-                    onBlur={() => {
-                      handleColumnRename(column.key, editingColumnName)
-                      setEditingColumnKey(null)
-                      setEditingColumnName('')
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault()
-                        handleColumnRename(column.key, editingColumnName)
-                        setEditingColumnKey(null)
-                        setEditingColumnName('')
-                      }
-                      if (e.key === 'Escape') {
-                        setEditingColumnKey(null)
-                        setEditingColumnName('')
-                      }
-                    }}
-                    autoFocus
-                  />
+                  <input className="input kanban-title-input" type="text" value={editingColumnName} onChange={(e) => setEditingColumnName(e.target.value)} onBlur={() => { handleColumnRename(column.key, editingColumnName); setEditingColumnKey(null); setEditingColumnName(''); }} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleColumnRename(column.key, editingColumnName); setEditingColumnKey(null); setEditingColumnName(''); } if (e.key === 'Escape') { setEditingColumnKey(null); setEditingColumnName(''); } }} autoFocus />
                 ) : (
-                  <button
-                    className="kanban-title-btn"
-                    type="button"
-                    onClick={() => {
-                      setEditingColumnKey(column.key)
-                      setEditingColumnName(column.name)
-                    }}
-                  >
-                    {column.name}
-                  </button>
+                  <button className="kanban-title-btn" type="button" onClick={() => { setEditingColumnKey(column.key); setEditingColumnName(column.name); }}>{column.name}</button>
                 )}
-                <button
-                  className="kanban-col-delete"
-                  type="button"
-                  onClick={() => handleDeleteColumn(column.key)}
-                  disabled={columns.length <= 1}
-                  title={t('kanban.deleteColumnAria')}
-                >
-                  ✕
-                </button>
+                <button className="kanban-col-delete" type="button" onClick={() => handleDeleteColumn(column.key)} disabled={columns.length <= 1} title={t('kanban.deleteColumnAria')}>✕</button>
               </div>
               <span className="kanban-count">({columnCards.length})</span>
             </div>
             <div className="kanban-drop-zone" onDragOver={handleDragOver} onDrop={(e) => handleDrop(e, column.key)}>
-              {[...columnCards]
-                .sort((a, b) => {
-                  const byPriority = priorityRank(a.priority) - priorityRank(b.priority)
-                  if (byPriority !== 0) return byPriority
-                  const byPosition = (a.position || 0) - (b.position || 0)
-                  if (byPosition !== 0) return byPosition
-                  return (a.id || 0) - (b.id || 0)
-                })
-                .map(card => {
-                const descriptionText = stripHtml(card.description)
-                const showReadMore = descriptionText.length > 140
-                const checklistStats = getChecklistStats(card)
-                const hasChecklist = checklistStats.total > 0
-                const checklistComplete = hasChecklist && checklistStats.completed === checklistStats.total
+              {columnCards.map(card => {
+                const descriptionText = stripHtml(card.description);
+                const checklistStats = getChecklistStats(card);
+                const hasChecklist = checklistStats.total > 0;
+                const checklistComplete = hasChecklist && checklistStats.completed === checklistStats.total;
                 return (
-                  <div
-                    key={card.id}
-                    className={`kanban-card ${dragOverCardId === card.id ? 'drag-over' : ''}`}
-                    draggable
-                    onDragStart={(e) => handleDragStart(e, card)}
-                    onDragOver={(e) => {
-                      e.preventDefault()
-                      const rect = e.currentTarget.getBoundingClientRect()
-                      const isAfter = e.clientY > rect.top + rect.height / 2
-                      if (dragOverCardId !== card.id) setDragOverCardId(card.id)
-                      if (dragOverInsertAfter !== isAfter) setDragOverInsertAfter(isAfter)
-                    }}
-                    onDragLeave={() => {
-                      setDragOverCardId(null)
-                      setDragOverInsertAfter(false)
-                    }}
-                    onDrop={async (e) => {
-                      e.preventDefault()
-                      e.stopPropagation()
-                      const rect = e.currentTarget.getBoundingClientRect()
-                      const insertAfter = e.clientY > rect.top + rect.height / 2
-                      await applyCardMove(card.status, card.id, insertAfter)
-                      setDraggedCard(null)
-                      draggedCardRef.current = null
-                      setDragOverCardId(null)
-                      setDragOverInsertAfter(false)
-                    }}
-                    onDragEnd={() => {
-                      setDraggedCard(null)
-                      draggedCardRef.current = null
-                      setDragOverCardId(null)
-                      setDragOverInsertAfter(false)
-                    }}
-                    onClick={() => handleCardClick(card)}
-                  >
-                    <div className="card-header-row">
-                      <div className="card-label">{card.label || t('kanban.taskFallback')}</div>
-                      <div className="card-header-meta">
-                        {card.priority && (
-                          <span className={`card-priority ${card.priority}`}>{priorityLabelMap[card.priority] || card.priority}</span>
-                        )}
-                        {Array.isArray(card.assignees) && card.assignees.length > 0 && (
-                          <span className="card-assignees-hint" title={card.assignees.join(', ')}>
-                            {card.assignees.length === 1 ? card.assignees[0] : `${card.assignees.length} ${t('kanban.membersCount')}`}
-                          </span>
-                        )}
-                      </div>
+                  <div key={card.id} className={`kanban-card ${dragOverCardId === card.id ? 'drag-over' : ''}`} draggable onDragStart={(e) => handleDragStart(e, card)} onDragOver={(e) => { e.preventDefault(); const rect = e.currentTarget.getBoundingClientRect(); const isAfter = e.clientY > rect.top + rect.height / 2; if (dragOverCardId !== card.id) setDragOverCardId(card.id); if (dragOverInsertAfter !== isAfter) setDragOverInsertAfter(isAfter); }} onDragLeave={() => { setDragOverCardId(null); setDragOverInsertAfter(false); }} onDrop={async (e) => { e.preventDefault(); e.stopPropagation(); const rect = e.currentTarget.getBoundingClientRect(); const insertAfter = e.clientY > rect.top + rect.height / 2; await applyCardMove(card.status, card.id, insertAfter); setDraggedCard(null); draggedCardRef.current = null; setDragOverCardId(null); setDragOverInsertAfter(false); }} onDragEnd={() => { setDraggedCard(null); draggedCardRef.current = null; setDragOverCardId(null); setDragOverInsertAfter(false); }} onClick={() => handleCardClick(card)}>
+                    <div className="card-title-row">
+                      <div className="card-title">{card.title || t('kanban.taskFallback')}</div>
                     </div>
-                    <div className="card-title">{card.title}</div>
-                    {card.tags?.length > 1 && (
-                      <div className="card-tags">
-                        {card.tags.slice(1).map(tag => (
-                          <span key={tag} className="card-tag">{tag}</span>
-                        ))}
-                      </div>
-                    )}
                     {descriptionText && (
                       <div className="card-desc">
                         <span className="card-desc-text">{descriptionText}</span>
-                        {showReadMore && (
-                          <button
-                            className="card-read-more"
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              handleCardClick(card)
-                            }}
-                          >
-                            {t('kanban.readMore')}
-                          </button>
-                        )}
                       </div>
                     )}
                     <div className="card-meta">
@@ -611,31 +581,33 @@ export default function ProjectKanban({ project, onBack }) {
                       )}
                     </div>
                     <div className="kanban-mobile-actions" onClick={(e) => e.stopPropagation()}>
-                      {columns.map(col => (
-                        <button
-                          key={col.key}
-                          className="kanban-move-btn"
-                          disabled={card.status === col.key}
-                          onClick={() => handleStatusChange(card.id, col.key)}
-                        >
-                          {col.name}
-                        </button>
-                      ))}
+                      {columns.map(col => <button key={col.key} className="kanban-move-btn" disabled={card.status === col.key} onClick={() => handleStatusChange(card.id, col.key)}>{col.name}</button>)}
                     </div>
                   </div>
                 )
               })}
             </div>
+            <button className="kanban-add-card-btn" type="button" onClick={() => { setAddCardColumn(column.key); setFormData({ ...formData, status: column.key }); setIsModalOpen(true); }}>＋ {t('kanban.addTask') || 'Add task'}</button>
           </div>
         ))}
+
+        <div className="kanban-col kanban-add-col">
+          {showAddColumn ? (
+            <div className="kanban-add-form">
+              <input className="input kanban-add-input" type="text" value={newColumnName} onChange={(e) => setNewColumnName(e.target.value)} placeholder={t('kanban.columnNamePlaceholder')} autoFocus onKeyDown={async (e) => { if (e.key === 'Enter') { e.preventDefault(); await handleAddColumn(); setShowAddColumn(false); } }} />
+              <div className="kanban-add-actions">
+                <button className="btn primary" type="button" onClick={async () => { await handleAddColumn(); setShowAddColumn(false); }}>{t('kanban.addColumnButton')}</button>
+                <button className="btn ghost" type="button" onClick={() => { setShowAddColumn(false); setNewColumnName(''); }}>{t('common.cancel') || '×'}</button>
+              </div>
+            </div>
+          ) : (
+            <button type="button" className="kanban-add-trigger" onClick={() => setShowAddColumn(true)}><span className="chevron">＋</span>{t('kanban.addColumn')}</button>
+          )}
+        </div>
       </div>
-      <ConfirmModal
-        isOpen={confirmDeleteColumn.isOpen}
-        onConfirm={handleConfirmDeleteColumn}
-        onCancel={() => setConfirmDeleteColumn({ isOpen: false, key: null, name: '' })}
-        title={t('kanban.deleteColumnTitle')}
-        message={deleteColumnMessage}
-      />
+
+      <ConfirmModal isOpen={confirmDeleteColumn.isOpen} onConfirm={handleConfirmDeleteColumn} onCancel={() => setConfirmDeleteColumn({ isOpen: false, key: null, name: '' })} title={t('kanban.deleteColumnTitle')} message={deleteColumnMessage} />
     </section>
   )
 }
+
