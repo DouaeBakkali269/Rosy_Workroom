@@ -155,7 +155,7 @@ export default function DashboardPage() {
 
   async function loadTransactions() {
     const data = await getTransactions()
-    setTransactions(data)
+    setTransactions(data.transactions || data || [])
   }
 
   async function loadMonthlyBudgets() {

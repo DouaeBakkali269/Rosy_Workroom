@@ -449,6 +449,19 @@ async function init() {
   );
 
   await run(
+    `CREATE TABLE IF NOT EXISTS categories (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      icon TEXT DEFAULT '📦',
+      color TEXT DEFAULT '#e8a0bf',
+      user_id INTEGER,
+      position INTEGER DEFAULT 0,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(name, user_id)
+    )`
+  );
+
+  await run(
     `CREATE TABLE IF NOT EXISTS vision_goals (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       title TEXT NOT NULL,
@@ -920,6 +933,35 @@ async function init() {
     }
   }
 
+  // Seed default categories for users that have none
+  const usersWithoutCategories = await all(
+    `SELECT DISTINCT u.id FROM users u
+     WHERE NOT EXISTS (SELECT 1 FROM categories c WHERE c.user_id = u.id)`
+  );
+  const defaultCategories = [
+    { name: 'Food', icon: '🍽️', color: '#f4845f' },
+    { name: 'Transport', icon: '🚗', color: '#7ec8e3' },
+    { name: 'Beauty', icon: '💄', color: '#e8a0bf' },
+    { name: 'Subscriptions', icon: '📱', color: '#b8b8ff' },
+    { name: 'Shopping', icon: '🛍️', color: '#ffd166' },
+    { name: 'Health', icon: '💊', color: '#83c5be' },
+    { name: 'Gifts', icon: '🎁', color: '#ff6b6b' },
+    { name: 'Other', icon: '📦', color: '#c4c4c4' },
+  ];
+  for (const user of usersWithoutCategories) {
+    for (let i = 0; i < defaultCategories.length; i++) {
+      const cat = defaultCategories[i];
+      try {
+        await run(
+          "INSERT INTO categories (name, icon, color, user_id, position) VALUES (?, ?, ?, ?, ?)",
+          [cat.name, cat.icon, cat.color, user.id, i + 1]
+        );
+      } catch (err) {
+        // ignore duplicate
+      }
+    }
+  }
+
   // Seed vision goals if table is empty
   const existingGoals = await all("SELECT COUNT(*) as count FROM vision_goals");
   if (existingGoals[0].count === 0) {
@@ -1247,10 +1289,162 @@ app.delete("/api/projects/:id", async (req, res) => {
   res.status(204).send();
 });
 
+// Categories CRUD
+app.get("/api/categories", async (req, res) => {
+  if (!req.userId) return res.status(401).send("Unauthorized");
+  // Seed defaults if user has no categories yet
+  const existing = await all("SELECT id FROM categories WHERE user_id = ? LIMIT 1", [req.userId]);
+  if (!existing.length) {
+    const defaults = [
+      { name: 'Food', icon: '🍽️', color: '#f4845f' },
+      { name: 'Transport', icon: '🚗', color: '#7ec8e3' },
+      { name: 'Beauty', icon: '💄', color: '#e8a0bf' },
+      { name: 'Subscriptions', icon: '📱', color: '#b8b8ff' },
+      { name: 'Shopping', icon: '🛍️', color: '#ffd166' },
+      { name: 'Health', icon: '💊', color: '#83c5be' },
+      { name: 'Gifts', icon: '🎁', color: '#ff6b6b' },
+      { name: 'Other', icon: '📦', color: '#c4c4c4' },
+    ];
+    for (let i = 0; i < defaults.length; i++) {
+      const cat = defaults[i];
+      try {
+        await run(
+          "INSERT INTO categories (name, icon, color, user_id, position) VALUES (?, ?, ?, ?, ?)",
+          [cat.name, cat.icon, cat.color, req.userId, i + 1]
+        );
+      } catch (err) { /* ignore duplicate */ }
+    }
+  }
+  const rows = await all(
+    "SELECT * FROM categories WHERE user_id = ? ORDER BY position ASC, id ASC",
+    [req.userId]
+  );
+  res.json(rows);
+});
+
+app.post("/api/categories", async (req, res) => {
+  if (!req.userId) return res.status(401).send("Unauthorized");
+  const { name, icon, color } = req.body;
+  const trimmedName = String(name || "").trim();
+  if (!trimmedName) return res.status(400).json({ error: "Category name is required" });
+  const [duplicate] = await all(
+    "SELECT id FROM categories WHERE lower(name) = lower(?) AND user_id = ?",
+    [trimmedName, req.userId]
+  );
+  if (duplicate) return res.status(409).json({ error: "Category already exists" });
+  if (color) {
+    const [colorDup] = await all(
+      "SELECT id, name FROM categories WHERE lower(color) = lower(?) AND user_id = ?",
+      [color.trim(), req.userId]
+    );
+    if (colorDup) return res.status(409).json({ error: "Color already used", usedBy: colorDup.name });
+  }
+  const [posRow] = await all(
+    "SELECT COALESCE(MAX(position), 0) as maxPos FROM categories WHERE user_id = ?",
+    [req.userId]
+  );
+  const position = (posRow?.maxPos || 0) + 1;
+  const result = await run(
+    "INSERT INTO categories (name, icon, color, user_id, position) VALUES (?, ?, ?, ?, ?)",
+    [trimmedName, icon || '📦', color || '#e8a0bf', req.userId, position]
+  );
+  const [created] = await all("SELECT * FROM categories WHERE id = ?", [result.lastID]);
+  res.status(201).json(created);
+});
+
+app.put("/api/categories/:id", async (req, res) => {
+  if (!req.userId) return res.status(401).send("Unauthorized");
+  const { id } = req.params;
+  const existing = await all("SELECT * FROM categories WHERE id = ? AND user_id = ?", [id, req.userId]);
+  if (!existing.length) return res.status(404).json({ error: "Category not found" });
+  const { name, icon, color, position } = req.body;
+  const trimmedName = name !== undefined ? String(name).trim() : existing[0].name;
+  if (!trimmedName) return res.status(400).json({ error: "Category name is required" });
+  if (name !== undefined) {
+    const [dup] = await all(
+      "SELECT id FROM categories WHERE lower(name) = lower(?) AND user_id = ? AND id != ?",
+      [trimmedName, req.userId, id]
+    );
+    if (dup) return res.status(409).json({ error: "Category name already exists" });
+  }
+  const nextColor = color !== undefined ? color : existing[0].color;
+  if (nextColor) {
+    const [colorDup] = await all(
+      "SELECT id, name FROM categories WHERE lower(color) = lower(?) AND user_id = ? AND id != ?",
+      [nextColor.trim(), req.userId, id]
+    );
+    if (colorDup) return res.status(409).json({ error: "Color already used", usedBy: colorDup.name });
+  }
+  await run(
+    "UPDATE categories SET name = ?, icon = ?, color = ?, position = ? WHERE id = ? AND user_id = ?",
+    [
+      trimmedName,
+      icon !== undefined ? icon : existing[0].icon,
+      color !== undefined ? color : existing[0].color,
+      typeof position === "number" ? position : existing[0].position,
+      id,
+      req.userId,
+    ]
+  );
+  const [updated] = await all("SELECT * FROM categories WHERE id = ?", [id]);
+  res.json(updated);
+});
+
+app.delete("/api/categories/:id", async (req, res) => {
+  if (!req.userId) return res.status(401).send("Unauthorized");
+  const { id } = req.params;
+  const existing = await all("SELECT * FROM categories WHERE id = ? AND user_id = ?", [id, req.userId]);
+  if (!existing.length) return res.status(404).json({ error: "Category not found" });
+  const [usage] = await all(
+    "SELECT COUNT(*) as count FROM transactions WHERE category = ? AND user_id = ?",
+    [existing[0].name, req.userId]
+  );
+  if (usage.count > 0) {
+    return res.status(409).json({
+      error: "Cannot delete category with existing transactions",
+      transactionCount: usage.count,
+      message: `${usage.count} transaction(s) use this category. Reassign them first.`
+    });
+  }
+  await run("DELETE FROM categories WHERE id = ? AND user_id = ?", [id, req.userId]);
+  res.status(204).send();
+});
+
+// Transactions
 app.get("/api/transactions", async (req, res) => {
   if (!req.userId) return res.status(401).send("Unauthorized");
-  const rows = await all("SELECT * FROM transactions WHERE user_id = ? ORDER BY date DESC, id DESC", [req.userId]);
-  res.json(rows);
+  const { year, month, page, limit: limitParam } = req.query;
+  const limit = Math.min(Math.max(parseInt(limitParam) || 20, 1), 100);
+  const pageNum = Math.max(parseInt(page) || 1, 1);
+  const offset = (pageNum - 1) * limit;
+
+  let whereClause = "WHERE user_id = ?";
+  const params = [req.userId];
+
+  if (year && month) {
+    const y = parseInt(year);
+    const m = parseInt(month);
+    const startDate = `${y}-${String(m).padStart(2, '0')}-01`;
+    const endMonth = m === 12 ? 1 : m + 1;
+    const endYear = m === 12 ? y + 1 : y;
+    const endDate = `${endYear}-${String(endMonth).padStart(2, '0')}-01`;
+    whereClause += " AND date >= ? AND date < ?";
+    params.push(startDate, endDate);
+  }
+
+  const [countRow] = await all(
+    `SELECT COUNT(*) as total FROM transactions ${whereClause}`,
+    params
+  );
+  const total = countRow?.total || 0;
+  const totalPages = Math.ceil(total / limit);
+
+  const rows = await all(
+    `SELECT * FROM transactions ${whereClause} ORDER BY date DESC, id DESC LIMIT ? OFFSET ?`,
+    [...params, limit, offset]
+  );
+
+  res.json({ transactions: rows, total, page: pageNum, limit, totalPages });
 });
 
 app.post("/api/transactions", async (req, res) => {
@@ -1265,6 +1459,26 @@ app.post("/api/transactions", async (req, res) => {
   );
   const [tx] = await all("SELECT * FROM transactions WHERE id = ?", [result.lastID]);
   res.status(201).json(tx);
+});
+
+app.put("/api/transactions/:id", async (req, res) => {
+  if (!req.userId) return res.status(401).send("Unauthorized");
+  const { id } = req.params;
+  const existing = await all("SELECT * FROM transactions WHERE id = ? AND user_id = ?", [id, req.userId]);
+  if (!existing.length) return res.status(404).send("Transaction not found");
+  const { date, item, category, amount } = req.body;
+  const next = {
+    date: date ?? existing[0].date,
+    item: item ?? existing[0].item,
+    category: category ?? existing[0].category,
+    amount: typeof amount === "number" ? amount : existing[0].amount,
+  };
+  await run(
+    "UPDATE transactions SET date = ?, item = ?, category = ?, amount = ? WHERE id = ? AND user_id = ?",
+    [next.date, next.item, next.category, next.amount, id, req.userId]
+  );
+  const [updated] = await all("SELECT * FROM transactions WHERE id = ?", [id]);
+  res.json(updated);
 });
 
 app.delete("/api/transactions/:id", async (req, res) => {

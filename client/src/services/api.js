@@ -59,9 +59,23 @@ export const createProject = (data) => apiRequest('projects', { method: 'POST', 
 export const updateProject = (id, data) => apiRequest(`projects/${id}`, { method: 'PUT', body: JSON.stringify(data) })
 export const deleteProject = (id) => apiRequest(`projects/${id}`, { method: 'DELETE' })
 
+// Categories
+export const getCategories = () => apiRequest('categories')
+export const createCategory = (data) => apiRequest('categories', { method: 'POST', body: JSON.stringify(data) })
+export const updateCategory = (id, data) => apiRequest(`categories/${id}`, { method: 'PUT', body: JSON.stringify(data) })
+export const deleteCategory = (id) => apiRequest(`categories/${id}`, { method: 'DELETE' })
+
 // Transactions
-export const getTransactions = () => apiRequest('transactions')
+export const getTransactions = ({ year, month, page, limit } = {}) => {
+  const params = new URLSearchParams()
+  if (year) params.set('year', year)
+  if (month) params.set('month', month)
+  if (page) params.set('page', page)
+  if (limit) params.set('limit', limit)
+  return apiRequest(`transactions?${params.toString()}`)
+}
 export const createTransaction = (data) => apiRequest('transactions', { method: 'POST', body: JSON.stringify(data) })
+export const updateTransaction = (id, data) => apiRequest(`transactions/${id}`, { method: 'PUT', body: JSON.stringify(data) })
 export const deleteTransaction = (id) => apiRequest(`transactions/${id}`, { method: 'DELETE' })
 
 // Kanban Cards

@@ -7100,3 +7100,116 @@ body.modal-open {
     grid-template-columns: 1fr;
   }
 }
+
+/* ── Month Picker ── */
+.month-picker {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  margin: 12px 0 18px;
+}
+
+.month-picker-label {
+  font-size: 18px;
+  font-weight: 700;
+  color: #62374d;
+  min-width: 180px;
+  text-align: center;
+  letter-spacing: 0.01em;
+}
+
+.month-picker-arrow {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(233, 176, 202, 0.64);
+  background: rgba(255, 247, 252, 0.85);
+  color: #8e4b6d;
+  font-size: 22px;
+  font-weight: 600;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  transition: all 0.18s ease;
+  line-height: 1;
+}
+
+.month-picker-arrow:hover {
+  background: rgba(240, 176, 204, 0.3);
+  border-color: #e8a0bf;
+}
+
+/* ── Pagination ── */
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 14px 0 6px;
+}
+
+.pagination-btn {
+  min-width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  border: 1.5px solid rgba(233, 176, 202, 0.4);
+  background: rgba(255, 247, 252, 0.7);
+  color: #8e4b6d;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  transition: all 0.18s ease;
+}
+
+.pagination-btn:hover:not(:disabled) {
+  background: rgba(240, 176, 204, 0.25);
+  border-color: #e8a0bf;
+}
+
+.pagination-btn.active {
+  background: linear-gradient(135deg, #e8a0bf 0%, #f0b0cc 100%);
+  color: #fff;
+  border-color: #e8a0bf;
+}
+
+.pagination-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.pagination-dots {
+  color: #c4a0b4;
+  font-size: 14px;
+  padding: 0 4px;
+  user-select: none;
+}
+
+.pagination-info {
+  font-size: 13px;
+  color: #a0889a;
+  margin-left: 12px;
+  white-space: nowrap;
+}
+
+/* ── Table Filter Row ── */
+.filter-row th {
+  padding: 4px 6px !important;
+  background: rgba(255, 247, 252, 0.5);
+  border-bottom: 1px solid rgba(233, 176, 202, 0.25);
+}
+
+.icon-btn.filter-active {
+  color: #e8a0bf;
+}
+
+/* ── Inline Edit Inputs ── */
+.input-sm {
+  height: 32px !important;
+  min-height: 32px !important;
+  padding: 4px 8px !important;
+  font-size: 13px !important;
+  border-radius: 8px !important;
+}
