@@ -65,9 +65,15 @@ export const createCategory = (data) => apiRequest('categories', { method: 'POST
 export const updateCategory = (id, data) => apiRequest(`categories/${id}`, { method: 'PUT', body: JSON.stringify(data) })
 export const deleteCategory = (id) => apiRequest(`categories/${id}`, { method: 'DELETE' })
 
+// User Settings
+export const getSettings = () => apiRequest('settings')
+export const updateSettings = (data) => apiRequest('settings', { method: 'PUT', body: JSON.stringify(data) })
+
 // Transactions
-export const getTransactions = ({ year, month, page, limit } = {}) => {
+export const getTransactions = ({ year, month, page, limit, dateFrom, dateTo } = {}) => {
   const params = new URLSearchParams()
+  if (dateFrom) params.set('dateFrom', dateFrom)
+  if (dateTo) params.set('dateTo', dateTo)
   if (year) params.set('year', year)
   if (month) params.set('month', month)
   if (page) params.set('page', page)
@@ -139,6 +145,7 @@ export const deleteVisionGoal = (id) => apiRequest(`vision-goals/${id}`, { metho
 export const getWishlist = () => apiRequest('wishlist')
 export const createWishlistItem = (data) => apiRequest('wishlist', { method: 'POST', body: JSON.stringify(data) })
 export const updateWishlistItem = (id, data) => apiRequest(`wishlist/${id}`, { method: 'PUT', body: JSON.stringify(data) })
+export const reorderWishlist = (orderedIds) => apiRequest('wishlist/reorder', { method: 'PUT', body: JSON.stringify({ orderedIds }) })
 export const deleteWishlistItem = (id) => apiRequest(`wishlist/${id}`, { method: 'DELETE' })
 
 // Profile

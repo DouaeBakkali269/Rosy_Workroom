@@ -7,7 +7,12 @@ const MONTH_KEYS = [
   'money.months.october', 'money.months.november', 'money.months.december',
 ]
 
-export default function MonthPicker({ year, month, onChange }) {
+const SHORT_MONTHS = [
+  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+]
+
+export default function MonthPicker({ year, month, onChange, cycleStartDay = 1, onSettingsClick, settingsTitle }) {
   const { t } = useLanguage()
 
   function goToPrev() {
@@ -26,7 +31,15 @@ export default function MonthPicker({ year, month, onChange }) {
     }
   }
 
-  const monthLabel = t(MONTH_KEYS[month - 1])
+  let label
+  if (cycleStartDay === 1) {
+    label = `${t(MONTH_KEYS[month - 1])} ${year}`
+  } else {
+    const endMonth = month === 12 ? 1 : month + 1
+    const endYear = month === 12 ? year + 1 : year
+    const endDay = cycleStartDay - 1
+    label = `${SHORT_MONTHS[month - 1]} ${cycleStartDay} – ${SHORT_MONTHS[endMonth - 1]} ${endDay}, ${endYear}`
+  }
 
   return (
     <div className="month-picker">
@@ -39,7 +52,7 @@ export default function MonthPicker({ year, month, onChange }) {
         ‹
       </button>
       <span className="month-picker-label">
-        {monthLabel} {year}
+        {label}
       </span>
       <button
         className="month-picker-arrow"
@@ -49,6 +62,13 @@ export default function MonthPicker({ year, month, onChange }) {
       >
         ›
       </button>
+      {onSettingsClick && (
+        <button
+          className="month-picker-arrow cycle-settings-btn"
+          onClick={onSettingsClick}
+          title={settingsTitle}
+        >⚙</button>
+      )}
     </div>
   )
 }

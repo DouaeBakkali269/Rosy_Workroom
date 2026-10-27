@@ -10,7 +10,6 @@ import NotesPage from './pages/NotesPage'
 import WishlistPage from './pages/WishlistPage'
 import VisionPage from './pages/VisionPage'
 import WeekPlannerPage from './pages/WeekPlannerPage'
-import WeekHistoryPage from './pages/WeekHistoryPage'
 import LoginPage from './pages/LoginPage'
 import ProfilePage from './pages/ProfilePage'
 import { LanguageProvider } from './context/LanguageContext'
@@ -94,10 +93,6 @@ function App() {
             <Route
               path="/week-planner"
               element={<RequireAuth user={user}><WeekPlannerPage /></RequireAuth>}
-            />
-            <Route
-              path="/week-planner/history"
-              element={<RequireAuth user={user}><WeekHistoryPage /></RequireAuth>}
             />
             <Route
               path="/projects"

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import useLockBodyScroll from '../hooks/useLockBodyScroll'
 import ModalPortal from '../components/ModalPortal'
 import ConfirmModal from '../components/ConfirmModal'
@@ -8,13 +8,40 @@ import {
   getTransactions, createTransaction, updateTransaction, deleteTransaction,
   getMonthlyBudget, setMonthlyBudget,
   getCategories, createCategory, updateCategory, deleteCategory,
+  getSettings, updateSettings,
 } from '../services/api'
 import { useLanguage } from '../context/LanguageContext'
 
 const PAGE_SIZE = 8
 
+// Compute the date range for a given year/month and cycle start day
+function getCycleDates(year, month, startDay) {
+  if (startDay === 1) {
+    const lastDay = new Date(year, month, 0).getDate()
+    return {
+      dateFrom: `${year}-${String(month).padStart(2, '0')}-01`,
+      dateTo: `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`,
+    }
+  }
+  const endMonth = month === 12 ? 1 : month + 1
+  const endYear = month === 12 ? year + 1 : year
+  const endDay = startDay - 1
+  return {
+    dateFrom: `${year}-${String(month).padStart(2, '0')}-${String(startDay).padStart(2, '0')}`,
+    dateTo: `${endYear}-${String(endMonth).padStart(2, '0')}-${String(endDay).padStart(2, '0')}`,
+  }
+}
+
 export default function MoneyPage() {
   const { t } = useLanguage()
+
+  // Budget cycle setting
+  const [cycleStartDay, setCycleStartDay] = useState(1)
+  const [settingsReady, setSettingsReady] = useState(false)
+  const [isCycleSettingsOpen, setIsCycleSettingsOpen] = useState(false)
+  const [cycleInput, setCycleInput] = useState(1)
+  const activeRangeRef = useRef('')
+  const tableRequestRef = useRef(0)
 
   // Month navigation
   const now = new Date()
@@ -23,6 +50,7 @@ export default function MoneyPage() {
 
   // Data
   const [transactions, setTransactions] = useState([])
+  const [allTransactions, setAllTransactions] = useState([])
   const [categories, setCategories] = useState([])
   const [monthlyBudget, setMonthlyBudgetState] = useState(0)
   const [budgetInput, setBudgetInput] = useState('')
@@ -50,16 +78,48 @@ export default function MoneyPage() {
   const [filters, setFilters] = useState({ dateFrom: '', dateTo: '', item: '', category: '' })
   const [showFilters, setShowFilters] = useState(false)
 
-  useLockBodyScroll(isModalOpen || isBudgetModalOpen || isCategoryManagerOpen || isBreakdownOpen || confirmDelete.isOpen)
+  useLockBodyScroll(isModalOpen || isBudgetModalOpen || isCategoryManagerOpen || isBreakdownOpen || isCycleSettingsOpen || confirmDelete.isOpen)
+
+  // Load user settings on mount
+  useEffect(() => {
+    getSettings()
+      .then(s => {
+        const day = s?.budget_cycle_start_day || 1
+        setCycleStartDay(day)
+        setCycleInput(day)
+      })
+      .catch(() => {})
+      .finally(() => setSettingsReady(true))
+  }, [])
+
+  const cycleDates = getCycleDates(selectedYear, selectedMonth, cycleStartDay)
+
+  const loadAllTransactions = useCallback(async () => {
+    const { dateFrom, dateTo } = getCycleDates(selectedYear, selectedMonth, cycleStartDay)
+    const rangeKey = `${dateFrom}|${dateTo}`
+    activeRangeRef.current = rangeKey
+    try {
+      const data = await getTransactions({ dateFrom, dateTo, limit: 9999 })
+      if (activeRangeRef.current !== rangeKey) return
+      setAllTransactions(data.transactions || [])
+    } catch (err) {
+      console.error('Failed to load all transactions:', err)
+    }
+  }, [selectedYear, selectedMonth, cycleStartDay])
 
   const loadTransactions = useCallback(async (page = 1) => {
+    const { dateFrom, dateTo } = getCycleDates(selectedYear, selectedMonth, cycleStartDay)
+    const rangeKey = `${dateFrom}|${dateTo}`
+    const requestId = ++tableRequestRef.current
+    activeRangeRef.current = rangeKey
     try {
       const data = await getTransactions({
-        year: selectedYear,
-        month: selectedMonth,
+        dateFrom,
+        dateTo,
         page,
         limit: PAGE_SIZE,
       })
+      if (tableRequestRef.current !== requestId || activeRangeRef.current !== rangeKey) return
       setTransactions(data.transactions || [])
       setTotalPages(data.totalPages || 1)
       setTotalTransactions(data.total || 0)
@@ -67,7 +127,7 @@ export default function MoneyPage() {
     } catch (err) {
       console.error('Failed to load transactions:', err)
     }
-  }, [selectedYear, selectedMonth])
+  }, [selectedYear, selectedMonth, cycleStartDay])
 
   const loadBudget = useCallback(async () => {
     try {
@@ -98,10 +158,12 @@ export default function MoneyPage() {
   }, [loadCategories])
 
   useEffect(() => {
+    if (!settingsReady) return
     setCurrentPage(1)
     loadTransactions(1)
+    loadAllTransactions()
     loadBudget()
-  }, [selectedYear, selectedMonth, loadTransactions, loadBudget])
+  }, [settingsReady, selectedYear, selectedMonth, loadTransactions, loadAllTransactions, loadBudget])
 
   function handleMonthChange(year, month) {
     setSelectedYear(year)
@@ -112,6 +174,15 @@ export default function MoneyPage() {
 
   function clearFilters() {
     setFilters({ dateFrom: '', dateTo: '', item: '', category: '' })
+    setFilterPage(1)
+  }
+
+  async function saveCycleSetting() {
+    const day = Math.min(Math.max(parseInt(cycleInput) || 1, 1), 28)
+    await updateSettings({ budget_cycle_start_day: day })
+    setCycleStartDay(day)
+    setCycleInput(day)
+    setIsCycleSettingsOpen(false)
   }
 
   const hasActiveFilters = filters.dateFrom || filters.dateTo || filters.item || filters.category
@@ -125,13 +196,14 @@ export default function MoneyPage() {
     setFormData({ date: '', item: '', category: '', amount: '' })
     setIsModalOpen(false)
     loadTransactions(1)
+    loadAllTransactions()
   }
 
   // --- Budget ---
   async function handleSaveBudget(e) {
     e.preventDefault()
     const budget = parseFloat(budgetInput)
-    if (!budget || budget <= 0) return
+    if (isNaN(budget) || budget < 0) return
     try {
       await setMonthlyBudget({ year: selectedYear, month: selectedMonth, budget })
       setMonthlyBudgetState(budget)
@@ -151,6 +223,7 @@ export default function MoneyPage() {
     await deleteTransaction(confirmDelete.txId)
     setConfirmDelete({ isOpen: false, txId: null, txLabel: '' })
     loadTransactions(currentPage)
+    loadAllTransactions()
   }
 
   // --- Inline Edit ---
@@ -180,6 +253,7 @@ export default function MoneyPage() {
       })
       setEditingId(null)
       loadTransactions(currentPage)
+      loadAllTransactions()
     } catch (err) {
       console.error('Failed to update transaction:', err)
     }
@@ -192,8 +266,16 @@ export default function MoneyPage() {
   }
 
   async function handleUpdateCategory(id, data) {
+    const previous = categories.find(c => c.id === id)
     await updateCategory(id, data)
     await loadCategories()
+    if (previous && data.name && previous.name !== data.name) {
+      if (filters.category === previous.name) {
+        setFilters(current => ({ ...current, category: data.name }))
+      }
+      await loadTransactions(currentPage)
+      await loadAllTransactions()
+    }
   }
 
   async function handleDeleteCategory(id) {
@@ -202,28 +284,109 @@ export default function MoneyPage() {
   }
 
   // --- Pagination ---
+  const [filterPage, setFilterPage] = useState(1)
+
   function goToPage(page) {
-    if (page < 1 || page > totalPages) return
-    loadTransactions(page)
+    if (hasActiveFilters) {
+      setFilterPage(page)
+    } else {
+      if (page < 1 || page > totalPages) return
+      loadTransactions(page)
+    }
+  }
+
+  // --- Download PDF (lazy-loaded) ---
+  async function downloadPDF() {
+    const jsPDFModule = await import('jspdf')
+    const jsPDF = jsPDFModule.default
+    const autoTable = (await import('jspdf-autotable')).default
+    const { dateFrom, dateTo } = getCycleDates(selectedYear, selectedMonth, cycleStartDay)
+    let txList = allTransactions
+
+    if (filters.category || filters.item || filters.dateFrom || filters.dateTo) {
+      txList = allTransactions.filter(tx => {
+        if (filters.dateFrom && tx.date < filters.dateFrom) return false
+        if (filters.dateTo && tx.date > filters.dateTo) return false
+        if (filters.item && !tx.item.toLowerCase().includes(filters.item.toLowerCase())) return false
+        if (filters.category && tx.category !== filters.category) return false
+        return true
+      })
+    }
+
+    const doc = new jsPDF()
+    const title = `${t('money.title')} - ${dateFrom} to ${dateTo}`
+
+    doc.setFontSize(16)
+    doc.setTextColor(142, 75, 109)
+    doc.text(title, 14, 18)
+
+    doc.setFontSize(10)
+    doc.setTextColor(100, 100, 100)
+    doc.text(`${t('money.budgetLabel')}: ${monthlyBudget.toFixed(2)} MAD`, 14, 26)
+    const pdfTotalSpent = txList.reduce((sum, tx) => sum + tx.amount, 0)
+    doc.text(`${t('money.spentLabel')}: ${pdfTotalSpent.toFixed(2)} MAD`, 14, 32)
+    doc.text(`${t('money.remainingLabel')}: ${(monthlyBudget - pdfTotalSpent).toFixed(2)} MAD`, 14, 38)
+
+    if (hasActiveFilters) {
+      doc.setFontSize(9)
+      doc.setTextColor(180, 120, 150)
+      const filterParts = []
+      if (filters.category) filterParts.push(`${t('money.tableCategory')}: ${filters.category}`)
+      if (filters.item) filterParts.push(`${t('money.tableItem')}: ${filters.item}`)
+      if (filters.dateFrom) filterParts.push(`${t('money.filterFrom')}: ${filters.dateFrom}`)
+      if (filters.dateTo) filterParts.push(`${t('money.filterTo')}: ${filters.dateTo}`)
+      doc.text(`Filters: ${filterParts.join(' | ')}`, 14, 44)
+    }
+
+    autoTable(doc, {
+      startY: hasActiveFilters ? 50 : 44,
+      head: [[t('money.tableDate'), t('money.tableItem'), t('money.tableCategory'), `${t('money.tableAmount')} (MAD)`]],
+      body: txList.map(tx => [tx.date, tx.item, tx.category, tx.amount.toFixed(2)]),
+      styles: { fontSize: 9, cellPadding: 3 },
+      headStyles: { fillColor: [142, 75, 109], textColor: 255 },
+      alternateRowStyles: { fillColor: [252, 245, 248] },
+      foot: [[
+        '', '', t('money.spentLabel'),
+        pdfTotalSpent.toFixed(2)
+      ]],
+      footStyles: { fillColor: [142, 75, 109], textColor: 255, fontStyle: 'bold' },
+    })
+
+    const fileName = `transactions_${dateFrom}_${dateTo}.pdf`
+    doc.save(fileName)
   }
 
   // --- Filtered transactions ---
-  const filteredTransactions = transactions.filter(tx => {
-    if (filters.dateFrom && tx.date < filters.dateFrom) return false
-    if (filters.dateTo && tx.date > filters.dateTo) return false  // same from & to = show that exact date
-    if (filters.item && !tx.item.toLowerCase().includes(filters.item.toLowerCase())) return false
-    if (filters.category && tx.category !== filters.category) return false
-    return true
-  })
+  // When filters active: filter ALL transactions client-side, then paginate client-side
+  // When no filters: use server-paginated results directly
+  const allFiltered = hasActiveFilters
+    ? allTransactions.filter(tx => {
+        if (filters.dateFrom && tx.date < filters.dateFrom) return false
+        if (filters.dateTo && tx.date > filters.dateTo) return false
+        if (filters.item && !tx.item.toLowerCase().includes(filters.item.toLowerCase())) return false
+        if (filters.category && tx.category !== filters.category) return false
+        return true
+      })
+    : null
 
-  // --- Computed Stats ---
-  const totalSpent = filteredTransactions.reduce((sum, tx) => sum + tx.amount, 0)
+  const displayPage = hasActiveFilters ? filterPage : currentPage
+  const displayTotalPages = hasActiveFilters
+    ? Math.max(1, Math.ceil((allFiltered?.length || 0) / PAGE_SIZE))
+    : totalPages
+  const displayTotal = hasActiveFilters ? (allFiltered?.length || 0) : totalTransactions
+
+  const filteredTransactions = hasActiveFilters
+    ? (allFiltered || []).slice((filterPage - 1) * PAGE_SIZE, filterPage * PAGE_SIZE)
+    : transactions
+
+  // --- Computed Stats (from ALL transactions in the month, not just the current page) ---
+  const totalSpent = allTransactions.reduce((sum, tx) => sum + tx.amount, 0)
   const remaining = monthlyBudget - totalSpent
   const saved = Math.max(remaining, 0)
   const budgetPercentage = monthlyBudget > 0 ? Math.round((totalSpent / monthlyBudget) * 100) : 0
 
-  // Category breakdown
-  const categoryTotals = filteredTransactions.reduce((acc, tx) => {
+  // Category breakdown (from ALL transactions in the month)
+  const categoryTotals = allTransactions.reduce((acc, tx) => {
     acc[tx.category] = (acc[tx.category] || 0) + tx.amount
     return acc
   }, {})
@@ -256,6 +419,9 @@ export default function MoneyPage() {
         year={selectedYear}
         month={selectedMonth}
         onChange={handleMonthChange}
+        cycleStartDay={cycleStartDay}
+        onSettingsClick={() => { setCycleInput(cycleStartDay); setIsCycleSettingsOpen(true) }}
+        settingsTitle={t('money.cycleSettings')}
       />
 
       {/* Add Transaction Modal */}
@@ -415,6 +581,53 @@ export default function MoneyPage() {
         </ModalPortal>
       )}
 
+      {/* Cycle Settings Modal */}
+      {isCycleSettingsOpen && (
+        <ModalPortal>
+          <div className="modal-overlay" onClick={() => setIsCycleSettingsOpen(false)}>
+            <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 380 }}>
+              <div className="modal-header">
+                <h3>{t('money.cycleSettings')}</h3>
+                <button className="modal-close" onClick={() => setIsCycleSettingsOpen(false)}>✕</button>
+              </div>
+              <div style={{ padding: '16px 20px' }}>
+                <p style={{ fontSize: 13, color: '#777', marginBottom: 14, lineHeight: 1.5 }}>
+                  {t('money.cycleDescription')}
+                </p>
+                <label style={{ fontSize: 13, fontWeight: 600, color: '#8e4b6d', marginBottom: 6, display: 'block' }}>
+                  {t('money.cycleStartDay')}
+                </label>
+                <select
+                  className="input"
+                  value={cycleInput}
+                  onChange={(e) => setCycleInput(parseInt(e.target.value))}
+                  style={{ marginBottom: 16 }}
+                >
+                  {Array.from({ length: 28 }, (_, i) => i + 1).map(d => (
+                    <option key={d} value={d}>
+                      {d === 1 ? `1 (${t('money.cycleCalendarDefault')})` : d}
+                    </option>
+                  ))}
+                </select>
+                {cycleInput !== 1 && (
+                  <p style={{ fontSize: 12, color: '#b07a99', marginBottom: 14, background: 'rgba(233,176,202,0.15)', padding: '8px 10px', borderRadius: 8 }}>
+                    {t('money.cyclePreview')}: {cycleInput} → {cycleInput - 1}
+                  </p>
+                )}
+                <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                  <button className="btn ghost" onClick={() => setIsCycleSettingsOpen(false)}>
+                    {t('common.cancel')}
+                  </button>
+                  <button className="btn primary" onClick={saveCycleSetting}>
+                    {t('common.save')}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </ModalPortal>
+      )}
+
       {/* Overview Cards */}
       <div className="grid-2">
         <div className="card">
@@ -457,16 +670,35 @@ export default function MoneyPage() {
               {t('money.spendingBreakdown')}
             </button>
           </div>
-          <div className="tag-row">
-            {Object.keys(categoryTotals).slice(0, 5).map(cat => (
-              <span
-                key={cat}
-                className="tag"
-                style={{ borderLeft: `3px solid ${getCategoryColor(cat)}` }}
-              >
-                {cat}
-              </span>
-            ))}
+          <div className="tag-row" style={{ flexWrap: 'wrap' }}>
+            {categories.map(cat => {
+              const isActive = filters.category === cat.name
+              return (
+                <span
+                  key={cat.id}
+                  className="tag"
+                  onClick={() => {
+                    if (isActive) {
+                      setFilters({ ...filters, category: '' })
+                    } else {
+                      setFilters({ ...filters, category: cat.name })
+                      setShowFilters(true)
+                    }
+                    setFilterPage(1)
+                  }}
+                  style={{
+                    borderLeft: `3px solid ${cat.color}`,
+                    cursor: 'pointer',
+                    background: isActive ? cat.color + '22' : undefined,
+                    outline: isActive ? `2px solid ${cat.color}` : 'none',
+                    fontWeight: isActive ? 600 : 400,
+                    transition: 'all 0.15s ease',
+                  }}
+                >
+                  {cat.name}
+                </span>
+              )
+            })}
           </div>
           <div className="progress">
             <div className="progress-bar" style={{ width: `${Math.min(budgetPercentage, 100)}%` }}></div>
@@ -492,8 +724,14 @@ export default function MoneyPage() {
             >
               {t('money.toggleFilters')}
             </button>
+            <button
+              className="icon-btn"
+              onClick={downloadPDF}
+              title={t('money.downloadPDF')}
+              style={{ fontSize: 15, color: '#8e4b6d' }}
+            >⤓</button>
             <span style={{ fontSize: 13, color: '#999' }}>
-              {hasActiveFilters ? filteredTransactions.length + ' / ' : ''}{totalTransactions} {t('money.totalTransactions')}
+              {hasActiveFilters ? displayTotal + ' / ' : ''}{totalTransactions} {t('money.totalTransactions')}
             </span>
           </div>
         </div>
@@ -644,23 +882,23 @@ export default function MoneyPage() {
         <div className="pagination">
           <button
             className="pagination-btn"
-            disabled={currentPage <= 1}
-            onClick={() => goToPage(currentPage - 1)}
+            disabled={displayPage <= 1}
+            onClick={() => goToPage(displayPage - 1)}
           >
             ‹
           </button>
-          {totalPages <= 7
-            ? Array.from({ length: totalPages }, (_, i) => i + 1).map(p => (
+          {displayTotalPages <= 7
+            ? Array.from({ length: displayTotalPages }, (_, i) => i + 1).map(p => (
                 <button
                   key={p}
-                  className={`pagination-btn ${currentPage === p ? 'active' : ''}`}
+                  className={`pagination-btn ${displayPage === p ? 'active' : ''}`}
                   onClick={() => goToPage(p)}
                 >
                   {p}
                 </button>
               ))
-            : Array.from({ length: totalPages }, (_, i) => i + 1)
-                .filter(p => p === 1 || p === totalPages || Math.abs(p - currentPage) <= 1)
+            : Array.from({ length: displayTotalPages }, (_, i) => i + 1)
+                .filter(p => p === 1 || p === displayTotalPages || Math.abs(p - displayPage) <= 1)
                 .reduce((acc, p, i, arr) => {
                   if (i > 0 && p - arr[i - 1] > 1) acc.push('...')
                   acc.push(p)
@@ -672,7 +910,7 @@ export default function MoneyPage() {
                   ) : (
                     <button
                       key={item}
-                      className={`pagination-btn ${currentPage === item ? 'active' : ''}`}
+                      className={`pagination-btn ${displayPage === item ? 'active' : ''}`}
                       onClick={() => goToPage(item)}
                     >
                       {item}
@@ -682,13 +920,13 @@ export default function MoneyPage() {
           }
           <button
             className="pagination-btn"
-            disabled={currentPage >= totalPages}
-            onClick={() => goToPage(currentPage + 1)}
+            disabled={displayPage >= displayTotalPages}
+            onClick={() => goToPage(displayPage + 1)}
           >
             ›
           </button>
           <span className="pagination-info">
-            {t('money.page')} {currentPage} {t('money.of')} {totalPages}
+            {t('money.page')} {displayPage} {t('money.of')} {displayTotalPages}
           </span>
         </div>
       </div>

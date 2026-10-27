@@ -1,8 +1,18 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import path from 'path'
+
+const emptyModule = path.resolve(__dirname, 'src/utils/empty.js')
 
 export default defineConfig({
   plugins: [react()],
+  resolve: {
+    alias: {
+      canvg: emptyModule,
+      html2canvas: emptyModule,
+      dompurify: emptyModule,
+    },
+  },
   server: {
     port: 5173,
     proxy: {

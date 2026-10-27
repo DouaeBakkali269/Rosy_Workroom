@@ -1,7 +1,20 @@
 import { useState } from 'react'
 import { useLanguage } from '../context/LanguageContext'
 
-export default function WishlistItem({ item, onEdit, onDelete, onMarkPurchased, onRemoveImage }) {
+export default function WishlistItem({
+  item,
+  onEdit,
+  onDelete,
+  onMarkPurchased,
+  onRemoveImage,
+  draggable = false,
+  isDragging = false,
+  isDragOver = false,
+  onDragStart,
+  onDragOver,
+  onDrop,
+  onDragEnd,
+}) {
   const { t, langKey } = useLanguage()
   const [isHovered, setIsHovered] = useState(false)
   const localeByLang = { en: 'en-US', fr: 'fr-FR', de: 'de-DE' }
@@ -9,7 +22,12 @@ export default function WishlistItem({ item, onEdit, onDelete, onMarkPurchased, 
 
   return (
     <div
-      className="wishlist-item-card"
+      className={`wishlist-item-card${isDragging ? ' dragging' : ''}${isDragOver ? ' drag-over' : ''}`}
+      draggable={draggable}
+      onDragStart={onDragStart}
+      onDragOver={onDragOver}
+      onDrop={onDrop}
+      onDragEnd={onDragEnd}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
     >
@@ -17,7 +35,7 @@ export default function WishlistItem({ item, onEdit, onDelete, onMarkPurchased, 
       <div className="wishlist-item-image">
         {item.image_path ? (
           <>
-            <img src={item.image_path} alt={item.item} className="wishlist-img" />
+            <img src={item.image_path} alt={item.item} className="wishlist-img" draggable={false} />
             {isHovered && (
               <button
                 className="btn-remove-wishlist-image"
@@ -40,7 +58,13 @@ export default function WishlistItem({ item, onEdit, onDelete, onMarkPurchased, 
         <h3 className="wishlist-item-name">{item.item}</h3>
         <div className="wishlist-item-footer">
           <p className="wishlist-item-price">{item.price} MAD</p>
-          <div className="wishlist-item-actions">
+          <div
+            className="wishlist-item-actions"
+            onDragStart={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+            }}
+          >
             <button
               className="icon-btn"
               onClick={() => onEdit(item)}

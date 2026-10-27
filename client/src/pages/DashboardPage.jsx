@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import useLockBodyScroll from '../hooks/useLockBodyScroll'
 import ConfirmModal from '../components/ConfirmModal'
-import { getCurrentWeekPlan, saveWeekPlan, getNotes, getTransactions, getMonthlyBudgets } from '../services/api'
+import { getCurrentWeekPlan, saveWeekPlan, getNotes, getTransactions, getMonthlyBudgets, getSettings } from '../services/api'
 import { useLanguage } from '../context/LanguageContext'
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
@@ -112,6 +112,7 @@ export default function DashboardPage() {
   const [notes, setNotes] = useState([])
   const [transactions, setTransactions] = useState([])
   const [monthlyBudgets, setMonthlyBudgets] = useState([])
+  const [cycleStartDay, setCycleStartDay] = useState(1)
   const [newTask, setNewTask] = useState('')
   const [draggedTaskId, setDraggedTaskId] = useState(null)
   const [dragOverTaskId, setDragOverTaskId] = useState(null)
@@ -126,6 +127,7 @@ export default function DashboardPage() {
     loadNotes()
     loadTransactions()
     loadMonthlyBudgets()
+    getSettings().then(s => setCycleStartDay(s?.budget_cycle_start_day || 1)).catch(() => {})
   }, [])
 
   useEffect(() => {
@@ -154,7 +156,7 @@ export default function DashboardPage() {
   }
 
   async function loadTransactions() {
-    const data = await getTransactions()
+    const data = await getTransactions({ limit: 9999 })
     setTransactions(data.transactions || data || [])
   }
 
@@ -277,25 +279,47 @@ export default function DashboardPage() {
       acc[`${budget.year}-${budget.month}`] = budget.budget
       return acc
     }, {})
-    
+
     for (let i = monthsCount - 1; i >= 0; i--) {
       const date = new Date(now.getFullYear(), now.getMonth() - i, 1)
+      const y = date.getFullYear()
+      const m = date.getMonth() + 1
+
+      let dateFrom, dateTo
+      if (cycleStartDay === 1) {
+        const lastDay = new Date(y, m, 0).getDate()
+        dateFrom = `${y}-${String(m).padStart(2, '0')}-01`
+        dateTo = `${y}-${String(m).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`
+      } else {
+        const endMonth = m === 12 ? 1 : m + 1
+        const endYear = m === 12 ? y + 1 : y
+        const endDay = cycleStartDay - 1
+        dateFrom = `${y}-${String(m).padStart(2, '0')}-${String(cycleStartDay).padStart(2, '0')}`
+        dateTo = `${endYear}-${String(endMonth).padStart(2, '0')}-${String(endDay).padStart(2, '0')}`
+      }
+
+      const shortName = date.toLocaleString(locale, { month: 'short' })
+      let displayName = shortName
+      if (cycleStartDay !== 1) {
+        const endMonth = m === 12 ? 1 : m + 1
+        const endDate = new Date(y, endMonth - 1, 1)
+        const endShort = endDate.toLocaleString(locale, { month: 'short' })
+        displayName = `${shortName} ${cycleStartDay} – ${endShort} ${cycleStartDay - 1}`
+      }
+
       months.push({
-        year: date.getFullYear(),
-        month: date.getMonth() + 1,
-        name: date.toLocaleString(locale, { month: 'short' }),
+        year: y,
+        month: m,
+        name: displayName,
         spending: 0,
-        budget: budgetMap[`${date.getFullYear()}-${date.getMonth() + 1}`] ?? null
+        budget: budgetMap[`${y}-${m}`] ?? null,
+        dateFrom,
+        dateTo,
       })
     }
-    
-    // Calculate spending per month
+
     transactions.forEach(tx => {
-      const txDate = new Date(tx.date)
-      const txYear = txDate.getFullYear()
-      const txMonth = txDate.getMonth() + 1
-      
-      const monthData = months.find(m => m.year === txYear && m.month === txMonth)
+      const monthData = months.find(m => tx.date >= m.dateFrom && tx.date <= m.dateTo)
       if (monthData) {
         monthData.spending += Number(tx.amount) || 0
       }
@@ -304,7 +328,7 @@ export default function DashboardPage() {
     months.forEach(month => {
       month.saved = month.budget !== null ? Math.max(month.budget - month.spending, 0) : null
     })
-    
+
     return months
   }
 

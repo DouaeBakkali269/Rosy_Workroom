@@ -1,4 +1,4 @@
-﻿import { useMemo, useState, useEffect } from 'react'
+import { useMemo, useState, useEffect } from 'react'
 import useLockBodyScroll from '../hooks/useLockBodyScroll'
 import ModalPortal from '../components/ModalPortal'
 import ConfirmModal from '../components/ConfirmModal'
@@ -61,10 +61,19 @@ const DEFAULT_GOAL_TYPES = [
 
 function normalizeType(value, typeByKey) {
   const raw = String(value || '').trim().toLowerCase()
-  if (!raw) return 'personal'
+  const fallback = typeByKey.personal ? 'personal' : Object.keys(typeByKey)[0] || 'personal'
+  if (!raw) return fallback
   if (raw === 'health & fitness' || raw === 'health-and-fitness' || raw === 'health') return 'health_fitness'
   if (raw === 'fun & recreation' || raw === 'fun-and-recreation' || raw === 'fun') return 'fun_recreation'
-  return typeByKey[raw] ? raw : 'personal'
+  return typeByKey[raw] ? raw : fallback
+}
+
+function resolveGoalType(goal, typeByKey) {
+  const key = normalizeType(goal?.category, typeByKey)
+  return typeByKey[key] || {
+    key,
+    label: goal?.category || 'Goal'
+  }
 }
 
 function getGoalImageUrl(goal) {
@@ -320,7 +329,6 @@ export default function VisionPage() {
       <div className="section-header week-planner-header">
         <div>
           <h2>{t('vision.title')}</h2>
-          <p className="week-range">Tiny steps, big blooms for your dream life.</p>
         </div>
         <div className="vision-header-actions">
           <button
@@ -340,77 +348,76 @@ export default function VisionPage() {
         </div>
       </div>
 
-      <div className="week-planner-container">
-        <div className="week-sidebar">
-          <div className="week-days">
+      <div className="vision-filter-row">
+        <button
+          className={`vision-filter-chip ${selectedType === 'all' ? 'active' : ''}`}
+          type="button"
+          onClick={() => setSelectedType('all')}
+        >
+          All
+          <span className="vision-filter-count">{goals.filter((g) => !g.achieved).length}</span>
+        </button>
+        {typeOrder.map((key) => {
+          const type = typeByKey[key]
+          if (!type) return null
+          const isActive = selectedType === type.key
+          const count = goals.filter((g) => normalizeType(g.category, typeByKey) === type.key && !g.achieved).length
+          return (
             <button
-              className={`day-btn ${selectedType === 'all' ? 'active' : ''}`}
+              key={type.key}
+              className={`vision-filter-chip ${isActive ? 'active' : ''} ${draggingType === type.key ? 'dragging' : ''}`}
               type="button"
-              onClick={() => setSelectedType('all')}
+              draggable
+              onDragStart={() => handleTypeDragStart(type.key)}
+              onDragOver={handleTypeDragOver}
+              onDrop={() => handleTypeDrop(type.key)}
+              onClick={() => setSelectedType(type.key)}
             >
-              <span className="day-name">✨ All goals</span>
-              <span className="task-count">
-                {goals.filter((g) => !g.achieved).length} active
+              {type.label}
+              <span className="vision-filter-count">{count}</span>
+              <span
+                className="vision-filter-delete"
+                role="button"
+                tabIndex={0}
+                onClick={(e) => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  handleDeleteType(type.key)
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    handleDeleteType(type.key)
+                  }
+                }}
+                title={t('common.delete')}
+                aria-label={t('common.delete')}
+              >
+                ✕
               </span>
             </button>
-            {typeOrder.map((key) => {
-              const type = typeByKey[key]
-              if (!type) return null
-              const isActive = selectedType === type.key
-              const count = goals.filter((g) => normalizeType(g.category, typeByKey) === type.key && !g.achieved).length
-              return (
-                <button
-                  key={type.key}
-                  className={`day-btn vision-type-btn ${isActive ? 'active' : ''}`}
-                  type="button"
-                  draggable
-                  onDragStart={() => handleTypeDragStart(type.key)}
-                  onDragOver={handleTypeDragOver}
-                  onDrop={() => handleTypeDrop(type.key)}
-                  onClick={() => setSelectedType(type.key)}
-                >
-                  <span className="day-name">{type.label}</span>
-                  <button
-                    type="button"
-                    className="vision-type-delete"
-                    onClick={(e) => {
-                      e.preventDefault()
-                      e.stopPropagation()
-                      handleDeleteType(type.key)
-                    }}
-                    title={t('common.delete')}
-                    aria-label={t('common.delete')}
-                  >
-                    ✕
-                  </button>
-                  <span className="task-count">
-                    {count} goals
-                  </span>
-                </button>
-              )
-            })}
-            <button
-              className={`day-btn reflection-day ${selectedType === 'completed' ? 'active' : ''}`}
-              type="button"
-              onClick={() => setSelectedType('completed')}
-            >
-              <span className="day-name">🌟 Achieved board</span>
-              <span className="task-count">
-                {goals.filter((g) => Boolean(g.achieved)).length} achieved
-              </span>
-            </button>
-          </div>
-        </div>
+          )
+        })}
+        <button
+          className={`vision-filter-chip ${selectedType === 'completed' ? 'active' : ''}`}
+          type="button"
+          onClick={() => setSelectedType('completed')}
+        >
+          Achieved
+          <span className="vision-filter-count">{goals.filter((g) => Boolean(g.achieved)).length}</span>
+        </button>
+      </div>
 
-        <div className="day-details">
+      <div className="day-details vision-board-stage">
           <div className="day-header">
-            <h3>
+            <h2 className="vision-type-title">
               {selectedType === 'all'
                 ? 'All active goals'
                 : selectedType === 'completed'
                   ? 'Achieved goals'
                   : typeByKey[selectedType]?.label || 'Goals'}
-            </h3>
+            </h2>
             {selectedType !== 'completed' && selectedType !== 'all' && (
               <div className="day-header-actions">
                 <span className="completion-rate">
@@ -429,14 +436,14 @@ export default function VisionPage() {
           </div>
 
           {selectedType !== 'all' && selectedType !== 'completed' && (
-            <p className="vision-selected-type-desc"><strong>{typeByKey[selectedType]?.desc}</strong></p>
+            <p className="vision-selected-type-desc">{typeByKey[selectedType]?.desc}</p>
           )}
 
           <div className="vision-goals-grid">
             {selectedType === 'completed'
               ? archivedGoals.length
                 ? archivedGoals.map((goal) => {
-                    const type = typeByKey[normalizeType(goal.category, typeByKey)] || typeByKey.personal
+                    const type = resolveGoalType(goal, typeByKey)
                     const imageUrl = getGoalImageUrl(goal)
                     return (
                       <article key={goal.id} className="vision-goal-card vision-goal-card-achieved">
@@ -488,7 +495,7 @@ export default function VisionPage() {
                 : <div className="vision-empty-state">No achieved goals yet. You are almost there 🌸</div>
               : activeGoals.length
                 ? activeGoals.map((goal) => {
-                    const type = typeByKey[normalizeType(goal.category, typeByKey)] || typeByKey.personal
+                    const type = resolveGoalType(goal, typeByKey)
                     const imageUrl = getGoalImageUrl(goal)
                     return (
                       <article key={goal.id} className="vision-goal-card">
@@ -534,7 +541,6 @@ export default function VisionPage() {
             }
           </div>
         </div>
-      </div>
 
       {isModalOpen && (
         <ModalPortal>
