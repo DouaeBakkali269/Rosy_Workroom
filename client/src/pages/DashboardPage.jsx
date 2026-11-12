@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import useLockBodyScroll from '../hooks/useLockBodyScroll'
 import ConfirmModal from '../components/ConfirmModal'
@@ -117,6 +117,9 @@ export default function DashboardPage() {
   const [draggedTaskId, setDraggedTaskId] = useState(null)
   const [dragOverTaskId, setDragOverTaskId] = useState(null)
   const [confirmDelete, setConfirmDelete] = useState({ isOpen: false, taskId: null, taskText: '' })
+  const [editingTaskId, setEditingTaskId] = useState(null)
+  const [editingTaskText, setEditingTaskText] = useState('')
+  const skipTaskSaveRef = useRef(false)
   const [focusMode, setFocusMode] = useState(true)
   const [activeMonthIndex, setActiveMonthIndex] = useState(null)
 
@@ -179,6 +182,35 @@ export default function DashboardPage() {
     })
     setWeekPlan(updated)
     setNewTask('')
+    await saveWeekPlan(weekKey, { days: updated, reflection: weekReflection })
+  }
+
+  function startEditTask(task) {
+    setEditingTaskId(task.id)
+    setEditingTaskText(task.text || '')
+  }
+
+  async function saveEditTask() {
+    if (editingTaskId == null) return
+    const trimmed = editingTaskText.trim()
+    if (!trimmed) {
+      setEditingTaskId(null)
+      setEditingTaskText('')
+      return
+    }
+    const todayIndex = getTodayIndex()
+    const updated = weekPlan.map((day, index) => {
+      if (index !== todayIndex) return day
+      return {
+        ...day,
+        tasks: day.tasks.map((task) => (
+          task.id === editingTaskId ? { ...task, text: trimmed } : task
+        ))
+      }
+    })
+    setWeekPlan(updated)
+    setEditingTaskId(null)
+    setEditingTaskText('')
     await saveWeekPlan(weekKey, { days: updated, reflection: weekReflection })
   }
 
@@ -408,8 +440,43 @@ export default function DashboardPage() {
                       onChange={(e) => handleToggleTask(task.id, e.target.checked)}
                     />
                     <span className={`priority-dot ${task.priority || 'medium'}`}></span>
-                    <span>{task.text}</span>
                   </label>
+                  {editingTaskId === task.id ? (
+                    <input
+                      className="checklist-input task-text-input"
+                      type="text"
+                      value={editingTaskText}
+                      onChange={(e) => setEditingTaskText(e.target.value)}
+                      onBlur={() => {
+                        if (skipTaskSaveRef.current) {
+                          skipTaskSaveRef.current = false
+                          return
+                        }
+                        saveEditTask()
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault()
+                          e.currentTarget.blur()
+                        }
+                        if (e.key === 'Escape') {
+                          skipTaskSaveRef.current = true
+                          setEditingTaskId(null)
+                          setEditingTaskText('')
+                          e.currentTarget.blur()
+                        }
+                      }}
+                      autoFocus
+                    />
+                  ) : (
+                    <span
+                      className="task-text"
+                      onClick={() => startEditTask(task)}
+                      title={t('task.clickToEdit')}
+                    >
+                      {task.text}
+                    </span>
+                  )}
                   <div className="task-actions-inline">
                     <button className="icon-btn" onClick={() => handleDeleteTask(task.id)}>✕</button>
                   </div>

@@ -324,6 +324,83 @@ export default function VisionPage() {
     }
   }, [goals, selectedType, typeByKey])
 
+  const progressLabel = (achieved, inProgress) => t('vision.typeProgress')
+    .replace('{achieved}', achieved)
+    .replace('{inProgress}', inProgress)
+
+  function renderGoalCard(goal, achieved) {
+    const type = resolveGoalType(goal, typeByKey)
+    const imageUrl = getGoalImageUrl(goal)
+    return (
+      <article key={goal.id} className={`vision-goal-card${achieved ? ' vision-goal-card-achieved' : ''}`}>
+        {achieved && (
+          <div className="vision-achieved-ribbon">
+            <span className="vision-achieved-ribbon-text">{t('vision.achieved')}</span>
+          </div>
+        )}
+        <div className={`vision-goal-cover-wrap ${imageUrl ? '' : 'is-empty'}`}>
+          {imageUrl ? <img src={imageUrl} alt={goal.title} className="vision-goal-cover" loading="lazy" /> : null}
+        </div>
+        <div className="vision-goal-content">
+          <div className="vision-goal-card-head">
+            <span className="vision-goal-type-chip">{type.label}</span>
+            <div className="vision-goal-actions">
+              {achieved ? (
+                <button
+                  className="icon-btn vision-unachieve-icon"
+                  type="button"
+                  title={t('vision.moveBackToGoals')}
+                  aria-label={t('vision.moveBackToGoals')}
+                  onClick={() => handleToggleAchieved(goal)}
+                >
+                  ↩
+                </button>
+              ) : (
+                <button
+                  className="icon-btn vision-achieve-icon"
+                  type="button"
+                  title={t('vision.markAchieved')}
+                  aria-label={t('vision.markAchieved')}
+                  onClick={() => handleToggleAchieved(goal)}
+                >
+                  ✓
+                </button>
+              )}
+              <button
+                className="icon-btn"
+                type="button"
+                onClick={() => openEditModal(goal)}
+              >
+                ✎
+              </button>
+              <button
+                className="icon-btn vision-goal-delete"
+                type="button"
+                onClick={() => openDeleteConfirm(goal.id)}
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+          <h3 className="vision-goal-name">{goal.title}</h3>
+          <p className="vision-goal-desc">{goal.description}</p>
+          {achieved && (
+            <div className="vision-goal-footer">
+              <span />
+              <span className="vision-achieved-date">
+                {t('vision.achieved')}: {goal.achieved_at ? new Date(goal.achieved_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : ''}
+              </span>
+            </div>
+          )}
+        </div>
+      </article>
+    )
+  }
+
+  const selectedTypeAchieved = selectedType !== 'all' && selectedType !== 'completed'
+    ? goals.filter((goal) => normalizeType(goal.category, typeByKey) === selectedType && Boolean(goal.achieved)).length
+    : 0
+
   return (
     <section className="page-section active">
       <div className="section-header week-planner-header">
@@ -337,13 +414,6 @@ export default function VisionPage() {
             onClick={openAddModal}
           >
             + {t('vision.addGoal')}
-          </button>
-          <button
-            className="btn ghost"
-            type="button"
-            onClick={() => setIsTypeModalOpen(true)}
-          >
-            + {t('vision.addType')}
           </button>
         </div>
       </div>
@@ -407,140 +477,45 @@ export default function VisionPage() {
           Achieved
           <span className="vision-filter-count">{goals.filter((g) => Boolean(g.achieved)).length}</span>
         </button>
+        <button
+          className="vision-filter-chip vision-filter-add"
+          type="button"
+          onClick={() => setIsTypeModalOpen(true)}
+        >
+          + {t('vision.addType')}
+        </button>
       </div>
 
-      <div className="day-details vision-board-stage">
-          <div className="day-header">
-            <h2 className="vision-type-title">
-              {selectedType === 'all'
-                ? 'All active goals'
-                : selectedType === 'completed'
-                  ? 'Achieved goals'
-                  : typeByKey[selectedType]?.label || 'Goals'}
-            </h2>
-            {selectedType !== 'completed' && selectedType !== 'all' && (
-              <div className="day-header-actions">
-                <span className="completion-rate">
-                  {
-                    goals.filter(
-                      (g) => normalizeType(g.category, typeByKey) === selectedType && Boolean(g.achieved)
-                    ).length
-                  } achieved · {
-                    goals.filter(
-                      (g) => normalizeType(g.category, typeByKey) === selectedType && !g.achieved
-                    ).length
-                  } in progress
-                </span>
+      <div className="vision-board-stage">
+        {selectedType === 'all' ? (
+          activeGoals.length ? (
+            <div className="vision-goals-grid">
+              {activeGoals.map((goal) => renderGoalCard(goal, false))}
+            </div>
+          ) : (
+            <p className="vision-empty-line">{t('vision.emptyCategory')}</p>
+          )
+        ) : selectedType === 'completed' ? (
+          archivedGoals.length ? (
+            <div className="vision-goals-grid">
+              {archivedGoals.map((goal) => renderGoalCard(goal, true))}
+            </div>
+          ) : (
+            <p className="vision-empty-line">{t('vision.emptyArchived')}</p>
+          )
+        ) : (
+          <>
+            <p className="vision-type-meta vision-type-meta-selected">{progressLabel(selectedTypeAchieved, activeGoals.length)}</p>
+            {activeGoals.length ? (
+              <div className="vision-goals-grid">
+                {activeGoals.map((goal) => renderGoalCard(goal, false))}
               </div>
+            ) : (
+              <p className="vision-empty-line">{t('vision.emptyCategory')}</p>
             )}
-          </div>
-
-          {selectedType !== 'all' && selectedType !== 'completed' && (
-            <p className="vision-selected-type-desc">{typeByKey[selectedType]?.desc}</p>
-          )}
-
-          <div className="vision-goals-grid">
-            {selectedType === 'completed'
-              ? archivedGoals.length
-                ? archivedGoals.map((goal) => {
-                    const type = resolveGoalType(goal, typeByKey)
-                    const imageUrl = getGoalImageUrl(goal)
-                    return (
-                      <article key={goal.id} className="vision-goal-card vision-goal-card-achieved">
-                        <div className="vision-achieved-ribbon">
-                          <span className="vision-achieved-ribbon-text">Achieved</span>
-                        </div>
-                        <div className={`vision-goal-cover-wrap ${imageUrl ? '' : 'is-empty'}`}>
-                          {imageUrl ? <img src={imageUrl} alt={goal.title} className="vision-goal-cover" loading="lazy" /> : null}
-                        </div>
-                        <div className="vision-goal-content">
-                          <div className="vision-goal-card-head">
-                            <span className="vision-goal-type-chip">{type.label}</span>
-                            <div className="vision-goal-actions">
-                              <button
-                                className="icon-btn"
-                                type="button"
-                                onClick={() => openEditModal(goal)}
-                              >
-                                ✎
-                              </button>
-                              <button
-                                className="icon-btn vision-unachieve-icon"
-                                type="button"
-                                title={t('vision.moveBackToGoals')}
-                                aria-label={t('vision.moveBackToGoals')}
-                                onClick={() => handleToggleAchieved(goal)}
-                              >
-                                ↩
-                              </button>
-                              <button
-                                className="icon-btn vision-goal-delete"
-                                type="button"
-                                onClick={() => openDeleteConfirm(goal.id)}
-                              >
-                                ✕
-                              </button>
-                            </div>
-                          </div>
-                          <h3 className="vision-goal-name">{goal.title}</h3>
-                          <p className="vision-goal-desc">{goal.description}</p>
-                          <div className="vision-goal-footer">
-                            <span />
-                            <span className="vision-achieved-date">Achieved: {goal.achieved_at ? new Date(goal.achieved_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : ''}</span>
-                          </div>
-                        </div>
-                      </article>
-                    )
-                  })
-                : <div className="vision-empty-state">No achieved goals yet. You are almost there 🌸</div>
-              : activeGoals.length
-                ? activeGoals.map((goal) => {
-                    const type = resolveGoalType(goal, typeByKey)
-                    const imageUrl = getGoalImageUrl(goal)
-                    return (
-                      <article key={goal.id} className="vision-goal-card">
-                        <div className={`vision-goal-cover-wrap ${imageUrl ? '' : 'is-empty'}`}>
-                          {imageUrl ? <img src={imageUrl} alt={goal.title} className="vision-goal-cover" loading="lazy" /> : null}
-                        </div>
-                        <div className="vision-goal-content">
-                          <div className="vision-goal-card-head">
-                            <span className="vision-goal-type-chip">{type.label}</span>
-                            <div className="vision-goal-actions">
-                              <button
-                                className="icon-btn vision-achieve-icon"
-                                type="button"
-                                title={t('vision.markAchieved')}
-                                aria-label={t('vision.markAchieved')}
-                                onClick={() => handleToggleAchieved(goal)}
-                              >
-                                ✓
-                              </button>
-                              <button
-                                className="icon-btn"
-                                type="button"
-                                onClick={() => openEditModal(goal)}
-                              >
-                                ✎
-                              </button>
-                              <button
-                                className="icon-btn vision-goal-delete"
-                                type="button"
-                                onClick={() => openDeleteConfirm(goal.id)}
-                              >
-                                ✕
-                              </button>
-                            </div>
-                          </div>
-                          <h3 className="vision-goal-name">{goal.title}</h3>
-                          <p className="vision-goal-desc">{goal.description}</p>
-                        </div>
-                      </article>
-                    )
-                  })
-                : <div className="vision-empty-state">No goals to achieve in this view yet. Add your first one 💗</div>
-            }
-          </div>
-        </div>
+          </>
+        )}
+      </div>
 
       {isModalOpen && (
         <ModalPortal>

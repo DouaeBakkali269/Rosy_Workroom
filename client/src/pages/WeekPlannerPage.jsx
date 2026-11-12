@@ -111,6 +111,9 @@ export default function WeekPlannerPage() {
     taskId: null,
     taskText: ''
   })
+  const [editingTaskId, setEditingTaskId] = useState(null)
+  const [editingTaskText, setEditingTaskText] = useState('')
+  const skipTaskSaveRef = useRef(false)
   const [showFocusFormatToolbar, setShowFocusFormatToolbar] = useState(false)
   const focusEditorRef = useRef(null)
 
@@ -273,6 +276,34 @@ export default function WeekPlannerPage() {
     const [task] = updated[dayIndex].tasks.splice(taskIndex, 1)
     updated[targetDayIndex].tasks.push(task)
     setWeekPlan(updated)
+    saveChanges(updated)
+  }
+
+  function startEditTask(task) {
+    setEditingTaskId(task.id)
+    setEditingTaskText(task.text || '')
+  }
+
+  function saveEditTask(dayIndex) {
+    if (editingTaskId == null || dayIndex >= DAYS.length) return
+    const trimmed = editingTaskText.trim()
+    if (!trimmed) {
+      setEditingTaskId(null)
+      setEditingTaskText('')
+      return
+    }
+    const updated = weekPlan.map((day, index) => {
+      if (index !== dayIndex) return day
+      return {
+        ...day,
+        tasks: day.tasks.map((task) => (
+          task.id === editingTaskId ? { ...task, text: trimmed } : task
+        ))
+      }
+    })
+    setWeekPlan(updated)
+    setEditingTaskId(null)
+    setEditingTaskText('')
     saveChanges(updated)
   }
 
@@ -558,7 +589,42 @@ export default function WeekPlannerPage() {
                               className="task-checkbox"
                             />
                             <span className={`priority-dot ${task.priority || 'medium'}`}></span>
-                            <span className="task-text">{task.text}</span>
+                            {editingTaskId === task.id ? (
+                              <input
+                                className="checklist-input task-text-input"
+                                type="text"
+                                value={editingTaskText}
+                                onChange={(e) => setEditingTaskText(e.target.value)}
+                                onBlur={() => {
+                                  if (skipTaskSaveRef.current) {
+                                    skipTaskSaveRef.current = false
+                                    return
+                                  }
+                                  saveEditTask(selectedDay)
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    e.preventDefault()
+                                    e.currentTarget.blur()
+                                  }
+                                  if (e.key === 'Escape') {
+                                    skipTaskSaveRef.current = true
+                                    setEditingTaskId(null)
+                                    setEditingTaskText('')
+                                    e.currentTarget.blur()
+                                  }
+                                }}
+                                autoFocus
+                              />
+                            ) : (
+                              <span
+                                className="task-text"
+                                onClick={() => startEditTask(task)}
+                                title={t('task.clickToEdit')}
+                              >
+                                {task.text}
+                              </span>
+                            )}
                             <span className={`priority-label ${task.priority || 'medium'}`}>
                               {priorityLabelMap[task.priority || 'medium']}
                             </span>

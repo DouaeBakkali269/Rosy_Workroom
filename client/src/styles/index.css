@@ -1095,6 +1095,10 @@ body.modal-open {
   flex: 1;
 }
 
+#tasks-list label {
+  flex: 0 0 auto;
+}
+
 .money-pill {
   background: rgba(241, 138, 169, 0.18);
   padding: 8px 12px;
@@ -2527,17 +2531,65 @@ body.modal-open {
   background: rgba(255, 248, 252, 0.72);
 }
 
-.vision-empty-state {
-  grid-column: 1 / -1;
-  border: none;
-  background: rgba(248, 207, 223, 0.6);
-  border-radius: 0;
-  padding: 6px 10px;
-  font-size: 14px;
-  color: #000000;
-  display: inline-block;
-  width: auto;
-  justify-self: start;
+.vision-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 0 0 22px;
+}
+
+.vision-summary-item {
+  min-width: 110px;
+  padding: 10px 14px;
+  background: rgba(255, 255, 255, 0.55);
+  border: 1px solid rgba(233, 157, 186, 0.45);
+  border-radius: var(--radius-sm);
+}
+
+.vision-summary-value {
+  display: block;
+  font-size: 22px;
+  font-weight: 700;
+  color: #4a2c38;
+  line-height: 1.1;
+}
+
+.vision-summary-label {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  color: rgba(107, 56, 80, 0.7);
+}
+
+.vision-type-heading {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin: 0 0 14px;
+}
+
+.vision-type-meta {
+  font-size: 13px;
+  font-weight: 600;
+  color: #8e5570;
+  letter-spacing: 0.2px;
+}
+
+.vision-type-meta-selected {
+  margin: 0 0 14px;
+}
+
+.vision-group + .vision-group {
+  margin-top: 28px;
+}
+
+.vision-empty-line {
+  margin: 0;
+  font-size: 13px;
+  font-style: italic;
+  color: #8e5570;
+  letter-spacing: 0.2px;
 }
 
 .vision-archive-wrap {
@@ -4417,6 +4469,14 @@ body.modal-open {
   color: #6b3850;
   font-size: 14px;
   line-height: 1.35;
+  cursor: text;
+}
+
+.task-text-input {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 8px;
+  font-size: 14px;
 }
 
 .task-block-chip {
@@ -4584,27 +4644,41 @@ body.modal-open {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  border: 1px solid rgba(233, 157, 186, 0.55);
-  background: rgba(255, 255, 255, 0.72);
-  color: #6b3850;
-  border-radius: var(--radius-sm);
-  padding: 6px 10px;
+  border: none;
+  background: rgba(241, 138, 169, 0.2);
+  color: #8e5570;
+  border-radius: 999px;
+  padding: 6px 12px;
   font-family: "Architects Daughter", serif;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
+  letter-spacing: 0.2px;
   cursor: pointer;
-  transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+  outline: 2px solid transparent;
+  transition: background 0.15s ease, outline-color 0.15s ease;
 }
 
 .vision-filter-chip:hover {
-  background: rgba(255, 255, 255, 0.92);
-  border-color: #e887a8;
+  background: rgba(241, 138, 169, 0.32);
 }
 
 .vision-filter-chip.active {
-  background: rgba(245, 166, 193, 0.45);
-  border-color: #d56fb1;
-  box-shadow: 0 6px 14px rgba(213, 111, 177, 0.18);
+  background: rgba(241, 138, 169, 0.34);
+  outline-color: #d56f93;
+  color: #8e3a62;
+  font-weight: 700;
+}
+
+.vision-filter-add {
+  background: #f4a7c4;
+  color: #4a2c38;
+  outline: none;
+  font-weight: 700;
+}
+
+.vision-filter-add:hover {
+  background: #ee8eb4;
+  color: #4a2c38;
 }
 
 .vision-filter-chip.dragging {
@@ -4616,13 +4690,15 @@ body.modal-open {
 }
 
 .vision-filter-count {
-  min-width: 18px;
-  padding: 1px 6px;
-  border-radius: var(--radius-sm);
-  background: rgba(233, 111, 150, 0.16);
+  min-width: 0;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
   font-size: 12px;
   line-height: 1.4;
   text-align: center;
+  color: inherit;
+  font-weight: inherit;
 }
 
 .vision-filter-delete {
@@ -4632,8 +4708,9 @@ body.modal-open {
   width: 16px;
   height: 16px;
   margin-left: 2px;
-  color: rgba(173, 90, 124, 0.8);
-  font-size: 11px;
+  color: inherit;
+  font-size: 12px;
+  font-weight: inherit;
   line-height: 1;
 }
 
