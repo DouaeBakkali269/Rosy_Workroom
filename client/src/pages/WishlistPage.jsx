@@ -8,7 +8,8 @@ import { useLanguage } from '../context/LanguageContext'
 import { 
   getWishlist, 
   createWishlistItem, 
-  updateWishlistItem, 
+  updateWishlistItem,
+  reorderWishlist, 
   deleteWishlistItem,
   uploadWishlistImage,
   deleteWishlistImage 
@@ -29,6 +30,9 @@ export default function WishlistPage() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState({ isOpen: false, itemId: null, itemName: '' })
   const [confirmImageDelete, setConfirmImageDelete] = useState({ isOpen: false, itemId: null })
+  const [search, setSearch] = useState('')
+  const [draggedId, setDraggedId] = useState(null)
+  const [dragOverId, setDragOverId] = useState(null)
 
   useLockBodyScroll(isModalOpen)
 
@@ -161,11 +165,44 @@ export default function WishlistPage() {
     }
   }
 
+  async function handleReorder(list, setList, targetId) {
+    if (!draggedId || draggedId === targetId) return
+    const items = [...list]
+    const fromIndex = items.findIndex(entry => entry.id === draggedId)
+    const toIndex = items.findIndex(entry => entry.id === targetId)
+    if (fromIndex === -1 || toIndex === -1) return
+    const [moved] = items.splice(fromIndex, 1)
+    items.splice(toIndex, 0, moved)
+    setList(items)
+    setDraggedId(null)
+    setDragOverId(null)
+    try {
+      await reorderWishlist(items.map(entry => entry.id))
+    } catch (error) {
+      console.error('Failed to reorder wishlist:', error)
+      loadItems()
+    }
+  }
+
+  const query = search.trim().toLowerCase()
+  const matchesSearch = (item) => !query || String(item.item || '').toLowerCase().includes(query)
+  const visibleWishlist = wishlist.filter(matchesSearch)
+  const visiblePurchased = purchased.filter(matchesSearch)
+
   return (
     <section className="page-section active">
       <div className="section-header">
         <h2>{t('wishlist.title')}</h2>
-        <button className="btn primary" onClick={openAddModal}>{t('wishlist.addItem')}</button>
+        <div className="wishlist-header-actions">
+          <input
+            className="input wishlist-search-input"
+            type="search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder={t('wishlist.searchPlaceholder')}
+          />
+          <button className="btn primary" onClick={openAddModal}>{t('wishlist.addItem')}</button>
+        </div>
       </div>
 
       {isModalOpen && (
@@ -248,9 +285,13 @@ export default function WishlistPage() {
             <div className="empty-state">
               <p>{t('wishlist.wishlistEmpty')}</p>
             </div>
+          ) : visibleWishlist.length === 0 ? (
+            <div className="empty-state">
+              <p>{t('wishlist.noSearchResults')}</p>
+            </div>
           ) : (
             <div className="wishlist-grid">
-              {wishlist.map(item => (
+              {visibleWishlist.map(item => (
                 <WishlistItem
                   key={item.id}
                   item={item}
@@ -258,6 +299,24 @@ export default function WishlistPage() {
                   onDelete={handleDelete}
                   onMarkPurchased={handleMarkPurchased}
                   onRemoveImage={handleRemoveImage}
+                  draggable={!query}
+                  isDragging={draggedId === item.id}
+                  isDragOver={dragOverId === item.id && draggedId !== item.id}
+                  onDragStart={() => setDraggedId(item.id)}
+                  onDragOver={(e) => {
+                    if (query) return
+                    e.preventDefault()
+                    if (dragOverId !== item.id) setDragOverId(item.id)
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    handleReorder(wishlist, setWishlist, item.id)
+                  }}
+                  onDragEnd={() => {
+                    setDraggedId(null)
+                    setDragOverId(null)
+                  }}
                 />
               ))}
             </div>
@@ -270,9 +329,13 @@ export default function WishlistPage() {
             <div className="empty-state">
               <p>{t('wishlist.purchasedEmpty')}</p>
             </div>
+          ) : visiblePurchased.length === 0 ? (
+            <div className="empty-state">
+              <p>{t('wishlist.noSearchResults')}</p>
+            </div>
           ) : (
             <div className="wishlist-grid">
-              {purchased.map(item => (
+              {visiblePurchased.map(item => (
                 <WishlistItem
                   key={item.id}
                   item={item}
@@ -280,6 +343,24 @@ export default function WishlistPage() {
                   onDelete={handleDelete}
                   onMarkPurchased={() => {}}
                   onRemoveImage={handleRemoveImage}
+                  draggable={!query}
+                  isDragging={draggedId === item.id}
+                  isDragOver={dragOverId === item.id && draggedId !== item.id}
+                  onDragStart={() => setDraggedId(item.id)}
+                  onDragOver={(e) => {
+                    if (query) return
+                    e.preventDefault()
+                    if (dragOverId !== item.id) setDragOverId(item.id)
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    handleReorder(purchased, setPurchased, item.id)
+                  }}
+                  onDragEnd={() => {
+                    setDraggedId(null)
+                    setDragOverId(null)
+                  }}
                 />
               ))}
             </div>

@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useSearchParams } from 'react-router-dom'
 import useLockBodyScroll from '../hooks/useLockBodyScroll'
 import ConfirmModal from '../components/ConfirmModal'
-import { getCurrentWeekPlan, getWeekPlan, getWeekPlanHistory, saveWeekPlan } from '../services/api'
+import { getCurrentWeekPlan, getWeekPlan, saveWeekPlan } from '../services/api'
 import { useLanguage } from '../context/LanguageContext'
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
@@ -76,11 +76,17 @@ function formatWeekRange(weekKey, locale) {
   return `${startLabel} - ${endLabel}`
 }
 
-function formatWeekStamp(value, locale) {
-  if (!value) return ''
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return ''
-  return date.toLocaleDateString(locale, { month: 'short', day: 'numeric' })
+function shiftWeekKey(weekKey, deltaWeeks) {
+  if (!isWeekKey(weekKey)) return weekKey
+  const [year, month, day] = weekKey.split('-').map(Number)
+  const start = new Date(year, month - 1, day)
+  start.setDate(start.getDate() + deltaWeeks * 7)
+  const dayIndex = (start.getDay() + 6) % 7
+  start.setDate(start.getDate() - dayIndex)
+  const y = start.getFullYear()
+  const m = String(start.getMonth() + 1).padStart(2, '0')
+  const d = String(start.getDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
 }
 
 function getTodayIndex() {
@@ -96,10 +102,8 @@ export default function WeekPlannerPage() {
   const [taskPriority, setTaskPriority] = useState('medium')
   const [activeWeekKey, setActiveWeekKey] = useState('')
   const [currentWeekKey, setCurrentWeekKey] = useState('')
-  const [weekHistory, setWeekHistory] = useState([])
   const [isLoading, setIsLoading] = useState(true)
   const [searchParams, setSearchParams] = useSearchParams()
-  const navigate = useNavigate()
   const [weekReflection, setWeekReflection] = useState(DEFAULT_REFLECTION)
   const [confirmDelete, setConfirmDelete] = useState({
     isOpen: false,
@@ -107,6 +111,9 @@ export default function WeekPlannerPage() {
     taskId: null,
     taskText: ''
   })
+  const [editingTaskId, setEditingTaskId] = useState(null)
+  const [editingTaskText, setEditingTaskText] = useState('')
+  const skipTaskSaveRef = useRef(false)
   const [showFocusFormatToolbar, setShowFocusFormatToolbar] = useState(false)
   const focusEditorRef = useRef(null)
 
@@ -139,10 +146,7 @@ export default function WeekPlannerPage() {
   async function loadWeekPlanner(requestedWeek = '') {
     setIsLoading(true)
     try {
-      const [current, history] = await Promise.all([
-        getCurrentWeekPlan(),
-        getWeekPlanHistory()
-      ])
+      const current = await getCurrentWeekPlan()
       const currentKey = current && current.weekKey ? current.weekKey : ''
       setCurrentWeekKey(currentKey)
       const targetKey = requestedWeek || currentKey
@@ -159,12 +163,6 @@ export default function WeekPlannerPage() {
         setWeekReflection(parsed.reflection)
         setSelectedDay(getTodayIndex())
       }
-      const historyWeeks = Array.isArray(history?.weeks) ? history.weeks : []
-      const hasCurrent = currentKey && historyWeeks.some(week => week.week_key === currentKey)
-      const mergedHistory = hasCurrent
-        ? historyWeeks
-        : [{ week_key: currentKey, created_at: null, updated_at: null }, ...historyWeeks]
-      setWeekHistory(mergedHistory)
     } catch (error) {
       console.error('Failed to load week planner:', error)
     } finally {
@@ -202,8 +200,10 @@ export default function WeekPlannerPage() {
     }
   }
 
-  function viewAllHistory() {
-    navigate('/week-planner/history')
+  function goToWeek(deltaWeeks) {
+    const baseKey = activeWeekKey || currentWeekKey
+    if (!baseKey) return
+    loadWeekByKey(shiftWeekKey(baseKey, deltaWeeks))
   }
 
   async function saveChanges(updatedPlan) {
@@ -276,6 +276,34 @@ export default function WeekPlannerPage() {
     const [task] = updated[dayIndex].tasks.splice(taskIndex, 1)
     updated[targetDayIndex].tasks.push(task)
     setWeekPlan(updated)
+    saveChanges(updated)
+  }
+
+  function startEditTask(task) {
+    setEditingTaskId(task.id)
+    setEditingTaskText(task.text || '')
+  }
+
+  function saveEditTask(dayIndex) {
+    if (editingTaskId == null || dayIndex >= DAYS.length) return
+    const trimmed = editingTaskText.trim()
+    if (!trimmed) {
+      setEditingTaskId(null)
+      setEditingTaskText('')
+      return
+    }
+    const updated = weekPlan.map((day, index) => {
+      if (index !== dayIndex) return day
+      return {
+        ...day,
+        tasks: day.tasks.map((task) => (
+          task.id === editingTaskId ? { ...task, text: trimmed } : task
+        ))
+      }
+    })
+    setWeekPlan(updated)
+    setEditingTaskId(null)
+    setEditingTaskText('')
     saveChanges(updated)
   }
 
@@ -372,19 +400,13 @@ export default function WeekPlannerPage() {
   }
   const deleteMessage = t('week.deleteTaskMessage').replace('{task}', confirmDelete.taskText)
   const currentDay = weekPlan[selectedDay] || weekPlan[0]
-  const visibleHistory = weekHistory
   const activeWeekLabel = formatWeekRange(activeWeekKey || currentWeekKey, locale)
   const showingCurrentWeek = activeWeekKey === currentWeekKey
-  const maxInlineWeeks = 3
-  const inlineHistory = visibleHistory.slice(0, maxInlineWeeks)
 
   return (
     <section className="page-section active">
       <div className="section-header week-planner-header">
-        <div>
-          <h2>{t('week.title')}</h2>
-          <p className="week-range">{activeWeekLabel}</p>
-        </div>
+        <h2>{t('week.title')}</h2>
         {showingCurrentWeek ? (
           <span className="week-pill">{t('week.currentWeek')}</span>
         ) : (
@@ -392,6 +414,28 @@ export default function WeekPlannerPage() {
             {t('week.backToCurrent')}
           </button>
         )}
+      </div>
+
+      <div className="month-picker">
+        <button
+          className="month-picker-arrow"
+          onClick={() => goToWeek(-1)}
+          disabled={!activeWeekKey && !currentWeekKey}
+          title={t('week.prevWeek')}
+          aria-label={t('week.prevWeek')}
+        >
+          ‹
+        </button>
+        <span className="month-picker-label week-picker-label">{activeWeekLabel}</span>
+        <button
+          className="month-picker-arrow"
+          onClick={() => goToWeek(1)}
+          disabled={!activeWeekKey && !currentWeekKey}
+          title={t('week.nextWeek')}
+          aria-label={t('week.nextWeek')}
+        >
+          ›
+        </button>
       </div>
 
       <div className="week-planner-container">
@@ -411,40 +455,6 @@ export default function WeekPlannerPage() {
                 )}
               </button>
             ))}
-          </div>
-
-          <div className="week-history">
-            <div className="history-header">
-              <h4>{t('week.history')}</h4>
-              <span className="history-count">{visibleHistory.length}</span>
-            </div>
-
-            <div className="history-list">
-              {visibleHistory.length === 0 ? (
-                <p className="history-empty">{t('week.noPastWeeks')}</p>
-              ) : (
-                inlineHistory.map(week => (
-                  <button
-                    key={week.week_key}
-                    className={`history-item ${activeWeekKey === week.week_key ? 'active' : ''}`}
-                    onClick={() => loadWeekByKey(week.week_key)}
-                  >
-                    <span className="history-range">{formatWeekRange(week.week_key, locale)}</span>
-                    {week.week_key === currentWeekKey && (
-                      <span className="history-tag">{t('week.current')}</span>
-                    )}
-                    <span className="history-meta">
-                      {t('week.updated')} {formatWeekStamp(week.updated_at || week.created_at, locale)}
-                    </span>
-                  </button>
-                ))
-              )}
-            </div>
-            {visibleHistory.length > maxInlineWeeks && (
-              <button className="btn ghost history-view-all" onClick={viewAllHistory}>
-                {t('week.viewAllHistory')}
-              </button>
-            )}
           </div>
         </div>
 
@@ -579,7 +589,42 @@ export default function WeekPlannerPage() {
                               className="task-checkbox"
                             />
                             <span className={`priority-dot ${task.priority || 'medium'}`}></span>
-                            <span className="task-text">{task.text}</span>
+                            {editingTaskId === task.id ? (
+                              <input
+                                className="checklist-input task-text-input"
+                                type="text"
+                                value={editingTaskText}
+                                onChange={(e) => setEditingTaskText(e.target.value)}
+                                onBlur={() => {
+                                  if (skipTaskSaveRef.current) {
+                                    skipTaskSaveRef.current = false
+                                    return
+                                  }
+                                  saveEditTask(selectedDay)
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    e.preventDefault()
+                                    e.currentTarget.blur()
+                                  }
+                                  if (e.key === 'Escape') {
+                                    skipTaskSaveRef.current = true
+                                    setEditingTaskId(null)
+                                    setEditingTaskText('')
+                                    e.currentTarget.blur()
+                                  }
+                                }}
+                                autoFocus
+                              />
+                            ) : (
+                              <span
+                                className="task-text"
+                                onClick={() => startEditTask(task)}
+                                title={t('task.clickToEdit')}
+                              >
+                                {task.text}
+                              </span>
+                            )}
                             <span className={`priority-label ${task.priority || 'medium'}`}>
                               {priorityLabelMap[task.priority || 'medium']}
                             </span>

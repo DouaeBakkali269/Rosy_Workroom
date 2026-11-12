@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useMemo } from 'react'
 import useLockBodyScroll from '../hooks/useLockBodyScroll'
 import ModalPortal from './ModalPortal'
 import { updateKanbanCard, deleteKanbanCard } from '../services/api'
@@ -58,8 +58,19 @@ function normalizeAssignees(card) {
 export default function TaskDetails({ card, collaborators = [], onClose, onUpdate, onRefresh }) {
   const { t } = useLanguage()
   const [title, setTitle] = useState(card.title)
-  const [description, setDescription] = useState(card.description || '')
-  const [descriptionHtml, setDescriptionHtml] = useState(normalizeDescriptionHtml(card.description || ''))
+  const [description, setDescription] = useState(card.description || '') // draft (unsaved)
+  const [descriptionHtml, setDescriptionHtml] = useState(normalizeDescriptionHtml(card.description || '')) // draft html
+  const [savedDescriptionHtml, setSavedDescriptionHtml] = useState(normalizeDescriptionHtml(card.description || '')) // persisted view
+  const [descriptionDirty, setDescriptionDirty] = useState(false) // draft differs from saved
+  const [showDescriptionActions, setShowDescriptionActions] = useState(false)
+  const [isEditingDescription, setIsEditingDescription] = useState(false)
+  const [showFullDescription, setShowFullDescription] = useState(false)
+  const [descriptionOverflowing, setDescriptionOverflowing] = useState(false)
+  const [hasLocalDraft, setHasLocalDraft] = useState(false)
+  const draftStorageKey = useMemo(() => {
+    const key = card.id || card._id || card.title || 'unknown'
+    return `task-draft-${key}`
+  }, [card.id, card._id, card.title])
   const [dueDate, setDueDate] = useState(card.dueDate || '')
   const [tags, setTags] = useState(normalizeTags(card))
   const [priority, setPriority] = useState(card.priority || 'medium')
@@ -96,18 +107,56 @@ export default function TaskDetails({ card, collaborators = [], onClose, onUpdat
   })
   const descriptionRef = useRef(null)
   const dateInputRef = useRef(null)
+  const descriptionViewRef = useRef(null)
   const priorityLabelMap = {
     low: t('task.priorityLow'),
     medium: t('task.priorityMedium'),
     high: t('task.priorityHigh')
   }
 
+  useEffect(() => {
+    const storedDraft = localStorage.getItem(draftStorageKey)
+    if (storedDraft) {
+      setDescription(storedDraft)
+      setDescriptionHtml(storedDraft)
+      setHasLocalDraft(true)
+      setDescriptionDirty(true)
+    } else {
+      setHasLocalDraft(false)
+      setDescriptionDirty(false)
+    }
+  }, [draftStorageKey])
+
+  const wasEditingRef = useRef(false)
+  useEffect(() => {
+    if (isEditingDescription && !wasEditingRef.current && descriptionRef.current) {
+      descriptionRef.current.innerHTML = descriptionHtml || ''
+    }
+    wasEditingRef.current = isEditingDescription
+  }, [isEditingDescription])
+
+  useEffect(() => {
+    if (isEditingDescription) return
+    const el = descriptionViewRef.current
+    if (!el) return
+    const style = window.getComputedStyle(el)
+    const lineHeight = parseFloat(style.lineHeight) || 20
+    const lines = el.scrollHeight / lineHeight
+    const hasOverflow = lines > 9.2
+    setDescriptionOverflowing(hasOverflow)
+    if (!hasOverflow) setShowFullDescription(false)
+  }, [descriptionHtml, isEditingDescription, showFullDescription])
+
   useLockBodyScroll(true)
 
   useEffect(() => {
+    const storedDraft = localStorage.getItem(draftStorageKey)
+    const baseDescription = storedDraft ?? card.description ?? ''
+    const baseHtml = normalizeDescriptionHtml(baseDescription)
     setTitle(card.title)
-    setDescription(card.description || '')
-    setDescriptionHtml(normalizeDescriptionHtml(card.description || ''))
+    setDescription(baseDescription)
+    setDescriptionHtml(baseHtml)
+    setSavedDescriptionHtml(normalizeDescriptionHtml(card.description || ''))
     setDueDate(card.dueDate || '')
     setTags(normalizeTags(card))
     setPriority(card.priority || 'medium')
@@ -131,6 +180,10 @@ export default function TaskDetails({ card, collaborators = [], onClose, onUpdat
     setShowPriorityMenu(false)
     setShowMembersMenu(false)
     setShowFormatToolbar(false)
+    setDescriptionDirty(Boolean(storedDraft))
+    setShowDescriptionActions(false)
+    setIsEditingDescription(false)
+    setHasLocalDraft(Boolean(storedDraft))
     setNewTag('')
     setConfirmState({
       isOpen: false,
@@ -142,9 +195,9 @@ export default function TaskDetails({ card, collaborators = [], onClose, onUpdat
       attachmentId: null
     })
     if (descriptionRef.current) {
-      descriptionRef.current.innerHTML = normalizeDescriptionHtml(card.description || '')
+      descriptionRef.current.innerHTML = baseHtml
     }
-  }, [card.id])
+  }, [card.id, draftStorageKey, card.title, card.description, card.dueDate, card.tags, card.priority, card.assignees, card.checklistGroups, card.attachments])
 
   async function handleSave(overrides = {}) {
     setIsSaving(true)
@@ -152,11 +205,11 @@ export default function TaskDetails({ card, collaborators = [], onClose, onUpdat
       const nextTags = overrides.tags ?? tags
       const nextPriority = overrides.priority ?? priority
       const nextAssignees = overrides.assignees ?? assignees
-      const nextChecklistGroups = overrides.checklistGroups ?? checklistGroups
-      const nextAttachments = overrides.attachments ?? attachments
-      const nextDueDate = overrides.dueDate ?? dueDate
-      const nextDescription = overrides.description ?? description
-      const nextTitle = overrides.title ?? title
+    const nextChecklistGroups = overrides.checklistGroups ?? checklistGroups
+    const nextAttachments = overrides.attachments ?? attachments
+    const nextDueDate = overrides.dueDate ?? dueDate
+    const nextDescription = overrides.description ?? description
+    const nextTitle = overrides.title ?? title
       await updateKanbanCard(card.id, {
         title: nextTitle,
         description: nextDescription,
@@ -168,6 +221,13 @@ export default function TaskDetails({ card, collaborators = [], onClose, onUpdat
         assignees: nextAssignees,
         attachments: nextAttachments
       })
+      if (Object.prototype.hasOwnProperty.call(overrides, 'description')) {
+        setDescriptionDirty(false)
+        setShowDescriptionActions(false)
+        setIsEditingDescription(false)
+        setHasLocalDraft(false)
+        setSavedDescriptionHtml(normalizeDescriptionHtml(nextDescription))
+      }
       if (onRefresh) {
         onRefresh()
       } else if (onUpdate) {
@@ -606,56 +666,163 @@ export default function TaskDetails({ card, collaborators = [], onClose, onUpdat
           />
 
           <div className="task-section">
-            <h4 className="task-section-title">{t('task.description')}</h4>
-            <div className="task-description-wrap">
-              {showFormatToolbar && (
-                <div className="task-format-toolbar">
-                  <button
-                    type="button"
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => applyCommand('bold')}
-                    title={t('task.bold')}
-                  >
-                    B
-                  </button>
-                  <button
-                    type="button"
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => applyCommand('underline')}
-                    title={t('task.underline')}
-                  >
-                    U
-                  </button>
+              <div className="task-description-header">
+                <h4 className="task-section-title">{t('task.description')}</h4>
+                {!isEditingDescription && (
+                  <div className="task-description-header-actions">
+                    {(hasLocalDraft || descriptionDirty) && (
+                      <span className="task-unsaved-pill">{t('task.unsavedChangesShort')}</span>
+                    )}
+                    <button
+                      type="button"
+                      className="btn ghost"
+                      onClick={() => {
+                        const storedDraft = localStorage.getItem(draftStorageKey)
+                        if (storedDraft) {
+                          setDescription(storedDraft)
+                          setDescriptionHtml(storedDraft)
+                          setDescriptionDirty(true)
+                          setHasLocalDraft(true)
+                        } else {
+                          setDescriptionHtml(descriptionHtml || savedDescriptionHtml)
+                        }
+                        setIsEditingDescription(true)
+                        setShowDescriptionActions(true)
+                        requestAnimationFrame(() => setShowFormatToolbar(true))
+                      }}
+                    >
+                      {t('task.editDescription')}
+                    </button>
+                  </div>
+                )}
+              </div>
+
+            {!isEditingDescription && (
+              <>
+                <div
+                  className={`task-description-view ${!showFullDescription && descriptionOverflowing ? 'clamped' : ''}`}
+                  ref={descriptionViewRef}
+                >
+                  {descriptionHtml ? (
+                    <div dangerouslySetInnerHTML={{ __html: savedDescriptionHtml }} />
+                  ) : (
+                    <span className="task-description-empty">{t('task.descriptionPlaceholder')}</span>
+                  )}
                 </div>
-              )}
-              <div
-                className="task-description editor"
-                contentEditable
-                suppressContentEditableWarning
-                spellCheck={false}
-                autoCorrect="off"
-                autoCapitalize="off"
-                data-gramm="false"
-                ref={descriptionRef}
-                onInput={(e) => {
-                  const html = e.currentTarget.innerHTML
-                  setDescriptionHtml(html)
-                  setDescription(html)
+                {descriptionOverflowing && (
+                  <button
+                    type="button"
+                    className="task-description-toggle"
+                    onClick={() => setShowFullDescription((v) => !v)}
+                  >
+                    <span className={`chevron ${showFullDescription ? 'open' : ''}`} aria-hidden />
+                    {showFullDescription ? t('task.viewLess') : t('task.viewMore')}
+                  </button>
+                )}
+              </>
+            )}
+
+            {isEditingDescription && (
+              <div className="task-description-wrap">
+                {showFormatToolbar && (
+                  <div className="task-format-toolbar">
+                    <button
+                      type="button"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => applyCommand('bold')}
+                      title={t('task.bold')}
+                    >
+                      B
+                    </button>
+                    <button
+                      type="button"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => applyCommand('underline')}
+                      title={t('task.underline')}
+                    >
+                      U
+                    </button>
+                  </div>
+                )}
+                <div
+                  className="task-description editor"
+                  contentEditable
+                  suppressContentEditableWarning
+                  spellCheck={false}
+                  autoCorrect="off"
+                  autoCapitalize="off"
+                  data-gramm="false"
+                  ref={descriptionRef}
+                  onInput={(e) => {
+                    const html = e.currentTarget.innerHTML
+                    setDescriptionHtml(html)
+                    setDescription(html)
+                    setDescriptionDirty(true)
+                    setHasLocalDraft(true)
+                    localStorage.setItem(draftStorageKey, html)
+                    setShowDescriptionActions(true)
                 }}
                 onFocus={() => {
                   setShowFormatToolbar(true)
+                  setShowDescriptionActions(true)
                   requestAnimationFrame(() => setShowFormatToolbar(true))
                 }}
-                onBlur={async () => {
-                  await handleSave({ description })
+                onBlur={() => {
                   setShowFormatToolbar(false)
                 }}
-                onMouseUp={handleDescriptionSelection}
-                onKeyUp={handleDescriptionSelection}
-                onMouseDown={() => setShowFormatToolbar(true)}
-                data-placeholder={t('task.descriptionPlaceholder')}
-              />
-            </div>
+                  onMouseUp={handleDescriptionSelection}
+                  onKeyUp={handleDescriptionSelection}
+                  onMouseDown={() => setShowFormatToolbar(true)}
+                  data-placeholder={t('task.descriptionPlaceholder')}
+                />
+                {showDescriptionActions && (
+                  <div className="task-description-actions">
+                    <span className={`task-save-state ${descriptionDirty ? 'dirty' : 'clean'}`}>
+                      {descriptionDirty ? t('task.unsavedChanges') : t('task.saved')}
+                    </span>
+                    <div className="task-description-actions-buttons">
+                      <button
+                        type="button"
+                        className="btn ghost"
+                    onClick={() => {
+                      const saved = card.description || ''
+                      const savedHtml = normalizeDescriptionHtml(saved)
+                      setDescription(saved)
+                      setDescriptionHtml(savedHtml)
+                      setSavedDescriptionHtml(savedHtml)
+                      if (descriptionRef.current) {
+                        descriptionRef.current.innerHTML = savedHtml
+                      }
+                      setDescriptionDirty(false)
+                      setHasLocalDraft(false)
+                      setShowDescriptionActions(false)
+                      setIsEditingDescription(false)
+                      localStorage.removeItem(draftStorageKey)
+                    }}
+                  >
+                    {t('task.cancel')}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn primary"
+                    disabled={isSaving}
+                    onClick={async () => {
+                      if (!descriptionDirty) {
+                        setShowDescriptionActions(false)
+                        setIsEditingDescription(false)
+                        return
+                      }
+                      await handleSave({ description })
+                      localStorage.removeItem(draftStorageKey)
+                    }}
+                  >
+                        {isSaving ? t('task.saving') : t('task.saveDescription')}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {(attachments.length > 0 || showAttachments) && (

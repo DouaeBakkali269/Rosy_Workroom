@@ -267,34 +267,6 @@ export default function KanbanPage() {
         <div className="kanban-action-group">
           <div className="kanban-action-row">
             <button className="btn primary" onClick={() => setIsModalOpen(true)}>{t('kanban.addTask')}</button>
-            <div className="kanban-action-popover">
-              <button className="btn ghost" type="button" onClick={() => setShowAddColumn((value) => !value)}>
-                {t('kanban.addColumn')}
-              </button>
-              {showAddColumn && (
-                <div className="kanban-column-add-popover">
-                  <div className="kanban-column-add-input">
-                    <input
-                      className="input"
-                      type="text"
-                      value={newColumnName}
-                      onChange={(e) => setNewColumnName(e.target.value)}
-                      placeholder={t('kanban.columnNamePlaceholder')}
-                    />
-                    <button
-                      className="btn ghost"
-                      type="button"
-                      onClick={async () => {
-                        await handleAddColumn()
-                        setShowAddColumn(false)
-                      }}
-                    >
-                      {t('kanban.addColumnButton')}
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
           </div>
         </div>
       </div>
@@ -562,6 +534,51 @@ export default function KanbanPage() {
             </div>
           </div>
         ))}
+        <div className="kanban-col kanban-add-col">
+          {showAddColumn ? (
+            <div className="kanban-add-form">
+              <input
+                className="input kanban-add-input"
+                type="text"
+                value={newColumnName}
+                onChange={(e) => setNewColumnName(e.target.value)}
+                placeholder={t('kanban.columnNamePlaceholder')}
+                autoFocus
+              />
+              <div className="kanban-add-actions">
+                <button
+                  className="btn primary"
+                  type="button"
+                  onClick={async () => {
+                    await handleAddColumn()
+                    setShowAddColumn(false)
+                  }}
+                >
+                  {t('kanban.addColumnButton')}
+                </button>
+                <button
+                  className="btn ghost"
+                  type="button"
+                  onClick={() => {
+                    setShowAddColumn(false)
+                    setNewColumnName('')
+                  }}
+                >
+                  {t('common.cancel') || '×'}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button
+              type="button"
+              className="kanban-add-trigger"
+              onClick={() => setShowAddColumn(true)}
+            >
+              <span className="chevron">＋</span>
+              {t('kanban.addColumn')}
+            </button>
+          )}
+        </div>
       </div>
       <ConfirmModal
         isOpen={confirmDeleteColumn.isOpen}

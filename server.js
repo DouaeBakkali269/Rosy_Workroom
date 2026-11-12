@@ -449,6 +449,26 @@ async function init() {
   );
 
   await run(
+    `CREATE TABLE IF NOT EXISTS categories (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      icon TEXT DEFAULT '📦',
+      color TEXT DEFAULT '#e8a0bf',
+      user_id INTEGER,
+      position INTEGER DEFAULT 0,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(name, user_id)
+    )`
+  );
+
+  await run(
+    `CREATE TABLE IF NOT EXISTS user_settings (
+      user_id INTEGER PRIMARY KEY,
+      budget_cycle_start_day INTEGER DEFAULT 1
+    )`
+  );
+
+  await run(
     `CREATE TABLE IF NOT EXISTS vision_goals (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       title TEXT NOT NULL,
@@ -498,6 +518,7 @@ async function init() {
       status TEXT DEFAULT 'wishlist',
       purchased_date TEXT,
       image_path TEXT,
+      position INTEGER DEFAULT 0,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP
     )`
   );
@@ -741,6 +762,20 @@ async function init() {
     console.log("✅ Image_path column added to wishlist_items");
   }
 
+  if (!wishlistExisting.has("position")) {
+    await run("ALTER TABLE wishlist_items ADD COLUMN position INTEGER");
+    const wishlistRows = await all(
+      "SELECT id, user_id, COALESCE(status, 'wishlist') AS status FROM wishlist_items ORDER BY user_id, status, created_at DESC, id DESC"
+    );
+    const counters = new Map();
+    for (const row of wishlistRows) {
+      const key = `${row.user_id}|${row.status}`;
+      const next = (counters.get(key) || 0) + 1;
+      counters.set(key, next);
+      await run("UPDATE wishlist_items SET position = ? WHERE id = ?", [next, row.id]);
+    }
+  }
+
   // Add user_id columns to all tables for multi-user support
   console.log("🔄 Adding user_id columns to tables...");
   const tablesToMigrate = ['tasks', 'projects', 'kanban_cards', 'notes', 'transactions', 'monthly_budgets', 'vision_goals', 'wishlist_items', 'week_plans'];
@@ -917,6 +952,35 @@ async function init() {
         "INSERT INTO transactions (date, item, category, amount) VALUES (?, ?, ?, ?)",
         [tx.date, tx.item, tx.category, tx.amount]
       );
+    }
+  }
+
+  // Seed default categories for users that have none
+  const usersWithoutCategories = await all(
+    `SELECT DISTINCT u.id FROM users u
+     WHERE NOT EXISTS (SELECT 1 FROM categories c WHERE c.user_id = u.id)`
+  );
+  const defaultCategories = [
+    { name: 'Food', icon: '🍽️', color: '#f4845f' },
+    { name: 'Transport', icon: '🚗', color: '#7ec8e3' },
+    { name: 'Beauty', icon: '💄', color: '#e8a0bf' },
+    { name: 'Subscriptions', icon: '📱', color: '#b8b8ff' },
+    { name: 'Shopping', icon: '🛍️', color: '#ffd166' },
+    { name: 'Health', icon: '💊', color: '#83c5be' },
+    { name: 'Gifts', icon: '🎁', color: '#ff6b6b' },
+    { name: 'Other', icon: '📦', color: '#c4c4c4' },
+  ];
+  for (const user of usersWithoutCategories) {
+    for (let i = 0; i < defaultCategories.length; i++) {
+      const cat = defaultCategories[i];
+      try {
+        await run(
+          "INSERT INTO categories (name, icon, color, user_id, position) VALUES (?, ?, ?, ?, ?)",
+          [cat.name, cat.icon, cat.color, user.id, i + 1]
+        );
+      } catch (err) {
+        // ignore duplicate
+      }
     }
   }
 
@@ -1247,10 +1311,193 @@ app.delete("/api/projects/:id", async (req, res) => {
   res.status(204).send();
 });
 
+// Categories CRUD
+app.get("/api/categories", async (req, res) => {
+  if (!req.userId) return res.status(401).send("Unauthorized");
+  // Seed defaults if user has no categories yet
+  const existing = await all("SELECT id FROM categories WHERE user_id = ? LIMIT 1", [req.userId]);
+  if (!existing.length) {
+    const defaults = [
+      { name: 'Food', icon: '🍽️', color: '#f4845f' },
+      { name: 'Transport', icon: '🚗', color: '#7ec8e3' },
+      { name: 'Beauty', icon: '💄', color: '#e8a0bf' },
+      { name: 'Subscriptions', icon: '📱', color: '#b8b8ff' },
+      { name: 'Shopping', icon: '🛍️', color: '#ffd166' },
+      { name: 'Health', icon: '💊', color: '#83c5be' },
+      { name: 'Gifts', icon: '🎁', color: '#ff6b6b' },
+      { name: 'Other', icon: '📦', color: '#c4c4c4' },
+    ];
+    for (let i = 0; i < defaults.length; i++) {
+      const cat = defaults[i];
+      try {
+        await run(
+          "INSERT INTO categories (name, icon, color, user_id, position) VALUES (?, ?, ?, ?, ?)",
+          [cat.name, cat.icon, cat.color, req.userId, i + 1]
+        );
+      } catch (err) { /* ignore duplicate */ }
+    }
+  }
+  const rows = await all(
+    "SELECT * FROM categories WHERE user_id = ? ORDER BY position ASC, id ASC",
+    [req.userId]
+  );
+  res.json(rows);
+});
+
+app.post("/api/categories", async (req, res) => {
+  if (!req.userId) return res.status(401).send("Unauthorized");
+  const { name, icon, color } = req.body;
+  const trimmedName = String(name || "").trim();
+  if (!trimmedName) return res.status(400).json({ error: "Category name is required" });
+  const [duplicate] = await all(
+    "SELECT id FROM categories WHERE lower(name) = lower(?) AND user_id = ?",
+    [trimmedName, req.userId]
+  );
+  if (duplicate) return res.status(409).json({ error: "Category already exists" });
+  if (color) {
+    const [colorDup] = await all(
+      "SELECT id, name FROM categories WHERE lower(color) = lower(?) AND user_id = ?",
+      [color.trim(), req.userId]
+    );
+    if (colorDup) return res.status(409).json({ error: "Color already used", usedBy: colorDup.name });
+  }
+  const [posRow] = await all(
+    "SELECT COALESCE(MAX(position), 0) as maxPos FROM categories WHERE user_id = ?",
+    [req.userId]
+  );
+  const position = (posRow?.maxPos || 0) + 1;
+  const result = await run(
+    "INSERT INTO categories (name, icon, color, user_id, position) VALUES (?, ?, ?, ?, ?)",
+    [trimmedName, icon || '📦', color || '#e8a0bf', req.userId, position]
+  );
+  const [created] = await all("SELECT * FROM categories WHERE id = ?", [result.lastID]);
+  res.status(201).json(created);
+});
+
+app.put("/api/categories/:id", async (req, res) => {
+  if (!req.userId) return res.status(401).send("Unauthorized");
+  const { id } = req.params;
+  const existing = await all("SELECT * FROM categories WHERE id = ? AND user_id = ?", [id, req.userId]);
+  if (!existing.length) return res.status(404).json({ error: "Category not found" });
+  const { name, icon, color, position } = req.body;
+  const trimmedName = name !== undefined ? String(name).trim() : existing[0].name;
+  if (!trimmedName) return res.status(400).json({ error: "Category name is required" });
+  if (name !== undefined) {
+    const [dup] = await all(
+      "SELECT id FROM categories WHERE lower(name) = lower(?) AND user_id = ? AND id != ?",
+      [trimmedName, req.userId, id]
+    );
+    if (dup) return res.status(409).json({ error: "Category name already exists" });
+  }
+  const nextColor = color !== undefined ? color : existing[0].color;
+  if (nextColor) {
+    const [colorDup] = await all(
+      "SELECT id, name FROM categories WHERE lower(color) = lower(?) AND user_id = ? AND id != ?",
+      [nextColor.trim(), req.userId, id]
+    );
+    if (colorDup) return res.status(409).json({ error: "Color already used", usedBy: colorDup.name });
+  }
+  const previousName = existing[0].name;
+  await run(
+    "UPDATE categories SET name = ?, icon = ?, color = ?, position = ? WHERE id = ? AND user_id = ?",
+    [
+      trimmedName,
+      icon !== undefined ? icon : existing[0].icon,
+      color !== undefined ? color : existing[0].color,
+      typeof position === "number" ? position : existing[0].position,
+      id,
+      req.userId,
+    ]
+  );
+  if (previousName !== trimmedName) {
+    await run(
+      "UPDATE transactions SET category = ? WHERE category = ? AND user_id = ?",
+      [trimmedName, previousName, req.userId]
+    );
+  }
+  const [updated] = await all("SELECT * FROM categories WHERE id = ?", [id]);
+  res.json(updated);
+});
+
+app.delete("/api/categories/:id", async (req, res) => {
+  if (!req.userId) return res.status(401).send("Unauthorized");
+  const { id } = req.params;
+  const existing = await all("SELECT * FROM categories WHERE id = ? AND user_id = ?", [id, req.userId]);
+  if (!existing.length) return res.status(404).json({ error: "Category not found" });
+  const [usage] = await all(
+    "SELECT COUNT(*) as count FROM transactions WHERE category = ? AND user_id = ?",
+    [existing[0].name, req.userId]
+  );
+  if (usage.count > 0) {
+    return res.status(409).json({
+      error: "Cannot delete category with existing transactions",
+      transactionCount: usage.count,
+      message: `${usage.count} transaction(s) use this category. Reassign them first.`
+    });
+  }
+  await run("DELETE FROM categories WHERE id = ? AND user_id = ?", [id, req.userId]);
+  res.status(204).send();
+});
+
+// User Settings
+app.get("/api/settings", async (req, res) => {
+  if (!req.userId) return res.status(401).send("Unauthorized");
+  const [row] = await all("SELECT * FROM user_settings WHERE user_id = ?", [req.userId]);
+  res.json(row || { user_id: req.userId, budget_cycle_start_day: 1 });
+});
+
+app.put("/api/settings", async (req, res) => {
+  if (!req.userId) return res.status(401).send("Unauthorized");
+  const { budget_cycle_start_day } = req.body;
+  const day = Math.min(Math.max(parseInt(budget_cycle_start_day) || 1, 1), 28);
+  const existing = await all("SELECT * FROM user_settings WHERE user_id = ?", [req.userId]);
+  if (existing.length > 0) {
+    await run("UPDATE user_settings SET budget_cycle_start_day = ? WHERE user_id = ?", [day, req.userId]);
+  } else {
+    await run("INSERT INTO user_settings (user_id, budget_cycle_start_day) VALUES (?, ?)", [req.userId, day]);
+  }
+  const [updated] = await all("SELECT * FROM user_settings WHERE user_id = ?", [req.userId]);
+  res.json(updated);
+});
+
+// Transactions
 app.get("/api/transactions", async (req, res) => {
   if (!req.userId) return res.status(401).send("Unauthorized");
-  const rows = await all("SELECT * FROM transactions WHERE user_id = ? ORDER BY date DESC, id DESC", [req.userId]);
-  res.json(rows);
+  const { year, month, page, limit: limitParam, dateFrom, dateTo } = req.query;
+  const limit = Math.min(Math.max(parseInt(limitParam) || 20, 1), 5000);
+  const pageNum = Math.max(parseInt(page) || 1, 1);
+  const offset = (pageNum - 1) * limit;
+
+  let whereClause = "WHERE user_id = ?";
+  const params = [req.userId];
+
+  if (dateFrom && dateTo) {
+    whereClause += " AND date >= ? AND date <= ?";
+    params.push(dateFrom, dateTo);
+  } else if (year && month) {
+    const y = parseInt(year);
+    const m = parseInt(month);
+    const startDate = `${y}-${String(m).padStart(2, '0')}-01`;
+    const endMonth = m === 12 ? 1 : m + 1;
+    const endYear = m === 12 ? y + 1 : y;
+    const endDate = `${endYear}-${String(endMonth).padStart(2, '0')}-01`;
+    whereClause += " AND date >= ? AND date < ?";
+    params.push(startDate, endDate);
+  }
+
+  const [countRow] = await all(
+    `SELECT COUNT(*) as total FROM transactions ${whereClause}`,
+    params
+  );
+  const total = countRow?.total || 0;
+  const totalPages = Math.ceil(total / limit);
+
+  const rows = await all(
+    `SELECT * FROM transactions ${whereClause} ORDER BY date DESC, id DESC LIMIT ? OFFSET ?`,
+    [...params, limit, offset]
+  );
+
+  res.json({ transactions: rows, total, page: pageNum, limit, totalPages });
 });
 
 app.post("/api/transactions", async (req, res) => {
@@ -1265,6 +1512,26 @@ app.post("/api/transactions", async (req, res) => {
   );
   const [tx] = await all("SELECT * FROM transactions WHERE id = ?", [result.lastID]);
   res.status(201).json(tx);
+});
+
+app.put("/api/transactions/:id", async (req, res) => {
+  if (!req.userId) return res.status(401).send("Unauthorized");
+  const { id } = req.params;
+  const existing = await all("SELECT * FROM transactions WHERE id = ? AND user_id = ?", [id, req.userId]);
+  if (!existing.length) return res.status(404).send("Transaction not found");
+  const { date, item, category, amount } = req.body;
+  const next = {
+    date: date ?? existing[0].date,
+    item: item ?? existing[0].item,
+    category: category ?? existing[0].category,
+    amount: typeof amount === "number" ? amount : existing[0].amount,
+  };
+  await run(
+    "UPDATE transactions SET date = ?, item = ?, category = ?, amount = ? WHERE id = ? AND user_id = ?",
+    [next.date, next.item, next.category, next.amount, id, req.userId]
+  );
+  const [updated] = await all("SELECT * FROM transactions WHERE id = ?", [id]);
+  res.json(updated);
 });
 
 app.delete("/api/transactions/:id", async (req, res) => {
@@ -1291,7 +1558,7 @@ app.get("/api/kanban/columns", async (req, res) => {
     rows = await all(
       `SELECT key, name, position
        FROM kanban_columns
-       WHERE (user_id IS NULL AND project_id IS NULL) OR project_id = ?
+       WHERE project_id = ?
        ORDER BY position ASC, id ASC`,
       [projectId]
     );
@@ -1949,7 +2216,10 @@ app.delete("/api/vision-goals/:id", async (req, res) => {
 // Wishlist endpoints
 app.get("/api/wishlist", async (req, res) => {
   if (!req.userId) return res.status(401).send("Unauthorized");
-  const rows = await all("SELECT * FROM wishlist_items WHERE user_id = ? ORDER BY created_at DESC", [req.userId]);
+  const rows = await all(
+    "SELECT * FROM wishlist_items WHERE user_id = ? ORDER BY COALESCE(position, 0) ASC, id ASC",
+    [req.userId]
+  );
   res.json(rows);
 });
 
@@ -1960,12 +2230,31 @@ app.post("/api/wishlist", async (req, res) => {
     return res.status(400).send("Item required");
   }
   const normalizedImagePath = typeof imageUrl === "string" && imageUrl.trim() ? imageUrl.trim() : null;
+  const nextStatus = status || "wishlist";
+  const [posRow] = await all(
+    "SELECT COALESCE(MIN(position), 1) AS minPos FROM wishlist_items WHERE user_id = ? AND status = ?",
+    [req.userId, nextStatus]
+  );
+  const position = (posRow?.minPos ?? 1) - 1;
   const result = await run(
-    "INSERT INTO wishlist_items (item, price, status, image_path, user_id) VALUES (?, ?, ?, ?, ?)",
-    [item, price || '0 MAD', status || 'wishlist', normalizedImagePath, req.userId]
+    "INSERT INTO wishlist_items (item, price, status, image_path, user_id, position) VALUES (?, ?, ?, ?, ?, ?)",
+    [item, price || '0 MAD', nextStatus, normalizedImagePath, req.userId, position]
   );
   const [wishlistItem] = await all("SELECT * FROM wishlist_items WHERE id = ?", [result.lastID]);
   res.status(201).json(wishlistItem);
+});
+
+app.put("/api/wishlist/reorder", async (req, res) => {
+  if (!req.userId) return res.status(401).send("Unauthorized");
+  const orderedIds = Array.isArray(req.body?.orderedIds) ? req.body.orderedIds : [];
+  if (!orderedIds.length) return res.status(400).send("orderedIds required");
+  for (let i = 0; i < orderedIds.length; i += 1) {
+    await run(
+      "UPDATE wishlist_items SET position = ? WHERE id = ? AND user_id = ?",
+      [i + 1, orderedIds[i], req.userId]
+    );
+  }
+  res.json({ ok: true });
 });
 
 app.put("/api/wishlist/:id", async (req, res) => {
@@ -1974,21 +2263,32 @@ app.put("/api/wishlist/:id", async (req, res) => {
   const existing = await all("SELECT * FROM wishlist_items WHERE id = ? AND user_id = ?", [id, req.userId]);
   if (!existing.length) return res.status(404).send("Not found");
   
-  const { status, purchased_date, item, price, imageUrl } = req.body;
+  const { status, purchased_date, item, price, imageUrl, position } = req.body;
   const normalizedImagePath = imageUrl === undefined
     ? existing[0].image_path
     : (typeof imageUrl === "string" && imageUrl.trim() ? imageUrl.trim() : null);
+  let nextPosition = existing[0].position;
+  if (typeof position === "number") {
+    nextPosition = position;
+  } else if (status && status !== existing[0].status) {
+    const [posRow] = await all(
+      "SELECT COALESCE(MAX(position), 0) AS maxPos FROM wishlist_items WHERE user_id = ? AND status = ?",
+      [req.userId, status]
+    );
+    nextPosition = (posRow?.maxPos || 0) + 1;
+  }
   const next = {
     item: item ?? existing[0].item,
     price: price ?? existing[0].price,
     status: status ?? existing[0].status,
     purchased_date: purchased_date ?? existing[0].purchased_date,
-    image_path: normalizedImagePath
+    image_path: normalizedImagePath,
+    position: nextPosition,
   };
   
   await run(
-    "UPDATE wishlist_items SET item = ?, price = ?, status = ?, purchased_date = ?, image_path = ? WHERE id = ? AND user_id = ?",
-    [next.item, next.price, next.status, next.purchased_date, next.image_path, id, req.userId]
+    "UPDATE wishlist_items SET item = ?, price = ?, status = ?, purchased_date = ?, image_path = ?, position = ? WHERE id = ? AND user_id = ?",
+    [next.item, next.price, next.status, next.purchased_date, next.image_path, next.position, id, req.userId]
   );
   
   const [item_result] = await all("SELECT * FROM wishlist_items WHERE id = ?", [id]);

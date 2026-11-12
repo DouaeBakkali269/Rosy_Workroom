@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useParams, useNavigate } from 'react-router-dom'
 import useLockBodyScroll from '../hooks/useLockBodyScroll'
 import ModalPortal from '../components/ModalPortal'
 import { getProjects, createProject, updateProject, deleteProject, searchUsers } from '../services/api'
@@ -6,6 +7,8 @@ import ProjectKanban from '../components/ProjectKanban'
 import { useLanguage } from '../context/LanguageContext'
 
 export default function ProjectsPage() {
+  const params = useParams()
+  const navigate = useNavigate()
   const { t } = useLanguage()
   const [projects, setProjects] = useState([])
   const [selectedProject, setSelectedProject] = useState(null)
@@ -41,6 +44,22 @@ export default function ProjectsPage() {
   useEffect(() => {
     loadProjects()
   }, [])
+
+  useEffect(() => {
+    if (projects.length === 0) return
+    if (params.id) {
+      const found = projects.find(p => String(p.id) === String(params.id))
+      if (found) {
+        setSelectedProject(found)
+      } else {
+        // if id not found, go back to list
+        navigate('/projects', { replace: true })
+      }
+    } else {
+      // when leaving a project route (e.g., browser back), clear selection
+      setSelectedProject(null)
+    }
+  }, [projects, params.id, navigate])
 
   function errorMessage(error, fallback) {
     const raw = error?.message || ''
@@ -243,7 +262,15 @@ export default function ProjectsPage() {
           <span>{t('projects.membersCount')}: {Array.isArray(project.members) ? project.members.length : 0}</span>
         </div>
         <div className="card-actions">
-          <button className="btn primary" onClick={() => setSelectedProject(project)}>{t('projects.openBoard')}</button>
+          <button
+            className="btn primary"
+            onClick={() => {
+              setSelectedProject(project)
+              navigate(`/projects/${project.id}`)
+            }}
+          >
+            {t('projects.openBoard')}
+          </button>
           {project.isOwner !== false && (
             <>
               <button className="btn ghost" onClick={() => openEdit(project)}>{t('projects.edit')}</button>
